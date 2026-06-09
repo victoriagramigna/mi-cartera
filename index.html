@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mi Cartera</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0A0C12; color: #F1F5F9; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #10131C; }
+    ::-webkit-scrollbar-thumb { background: #1E2333; border-radius: 3px; }
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    const C = {
+      bg:"#0A0C12", panel:"#10131C", card:"#161922", border:"#1E2333",
+      accent:"#3B82F6", green:"#22C55E", red:"#EF4444", yellow:"#EAB308",
+      purple:"#A78BFA", orange:"#F97316", cyan:"#06B6D4",
+      white:"#F1F5F9", muted:"#475569", sub:"#64748B",
+    };
+    const TYPE_COLOR = { Acciones:C.accent, CEDEAR:C.purple, Cripto:C.orange, Bono:C.green, FCI:C.cyan, Otro:C.muted };
+    const ASSET_TYPES = Object.keys(TYPE_COLOR);
+
+    const num = v => parseFloat(String(v??'0').replace(/[,$\s]/g,''))||0;
+    const pct = v => v==null||isNaN(v)?'—':`${v>=0?'+':''}${v.toFixed(2)}%`;
+    const money = (v,d=0) => {
+      if(v==null||isNaN(v)) return '—';
+      const s=Math.abs(v).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
+      return (v<0?'-$':'$')+s;
+    };
+    const sc = v => v>0?C.green:v<0?C.red:C.sub;
+
+    // ── Google Sheets API ────────────────────────────────────────────────────
+    function extractSheetId(url) {
+      const m = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if(m) return m[1];
+      throw new Error('URL inválida. Usá la URL de edición: docs.google.com/spreadsheets/d/.../edit');
+    }
+
+    async function fetchSheet(url, apiKey) {
+      if(!apiKey||!apiKey.trim()) throw new Error('Ingresá tu API Key de Google.');
+      const id = extractSheetId(url.trim());
+      const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/A1:Z1000?key=${apiKey.trim()}`;
+      const res = await fetch(apiUrl);
+      if(res.status===403) throw new Error('API Key inválida o sin permisos para Google Sheets API.');
+      if(res.status===404) throw new Error('Hoja no encontrada. Verificá que esté compartida como "Cualquiera con el link puede ver".');
+      if(!res.ok) {
+        const err = await res.json().catch(()=>({}));
+        throw new Error(err?.error?.message || `Error ${res.status}`);
+      }
+      const json = await res.json();
+      const rows = json.values;
+      if(!rows||rows.length<2) throw new Error('La hoja está vacía.');
+      const normalize = s => s.toLowerCase().trim()
+        .replace(/á/g,'a').replace(/é/g,'e').replace(/í/g,'i').replace(/ó/g,'o').replace(/ú/g,'u');
+      const headers = rows[0].map(normalize);
+      const ALIASES = {
+        ticker:['ticker','simbolo','symbol','activo','nombre','name','instrumento'],
+        tipo:['tipo','type','categoria','clase'],
+        precio:['precio','price','cotizacion','ultimo','close','valor_cuota','last'],
+        cantidad:['cantidad','qty','tenencia','unidades'],
+        costo_prom:['costo_prom','precio_promedio','costo promedio','avg_cost','ppc','costo_unitario'],
+        valor_actual:['valor_actual','valor actual','market_value','total','monto'],
+        moneda:['moneda','currency','divisa'],
+      };
+      const pick = (row,key) => { for(const a of ALIASES[key]){ const i=headers.indexOf(a); if(i>=0&&row[i]) return row[i]; } return ''; };
+      const mapped = rows.slice(1).map(row=>({
+        ticker: pick(row,'ticker'),
+        tipo:   pick(row,'tipo')||'Otro',
+        precio: num(pick(row,'precio')),
+        cantidad: num(pick(row,'cantidad')),
+        costo_prom: num(pick(row,'costo_prom')),
+        valor_actual: num(pick(row,'valor_actual')),
+        moneda: pick(row,'moneda')||'ARS',
+      })).filter(r=>r.ticker&&r.precio>0);
+      if(!mapped.length) {
+        throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
+      }
+      return mapped;
+    }
+
+    // ── Storage (localStorage) ───────────────────────────────────────────────
+    const lsGet = k => { try{ return JSON.parse(localStorage.getItem(k)); }catch{ return null; } };
+    const lsSet = (k,v) => { try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} };
+
+    // ── Demo data ────────────────────────────────────────────────────────────
+    const DEMO = [
+      {ticker:'YPF', tipo:'Acciones',precio:19850, cantidad:200, costo_prom:16200, valor_actual:3970000,moneda:'ARS'},
+      {ticker:'GGAL',tipo:'Acciones',precio:8340,  cantidad:500, costo_prom:6800,  valor_actual:4170000,moneda:'ARS'},
+      {ticker:'AAPL',tipo:'CEDEAR',  precio:97200, cantidad:30,  costo_prom:88000, valor_actual:2916000,moneda:'ARS'},
+      {ticker:'MELI',tipo:'CEDEAR',  precio:185000,cantidad:10,  costo_prom:165000,valor_actual:1850000,moneda:'ARS'},
+      {ticker:'BTC', tipo:'Cripto',  precio:92000000,cantidad:0.05,costo_prom:75000000,valor_actual:4600000,moneda:'ARS'},
+      {ticker:'ETH', tipo:'Cripto',  precio:3200000,cantidad:0.5,costo_prom:2800000,valor_actual:1600000,moneda:'ARS'},
+      {ticker:'AL30',tipo:'Bono',    precio:63.5,  cantidad:10000,costo_prom:59.2, valor_actual:635000, moneda:'USD'},
+    ];
+
+    // ── Pie chart ────────────────────────────────────────────────────────────
+    function PieChart({slices,size=110}){
+      const r=size/2,cx=r,cy=r,ir=r*0.58; let angle=-Math.PI/2;
+      const paths=slices.map(s=>{
+        const sw=s.pct*2*Math.PI;
+        const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
+        angle+=sw;
+        const x2=cx+r*Math.cos(angle),y2=cy+r*Math.sin(angle);
+        return {...s,d:`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${sw>Math.PI?1:0},1 ${x2},${y2} Z`};
+      });
+      return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {paths.map((p,i)=><path key={i} d={p.d} fill={p.color} opacity={0.9} stroke={C.bg} strokeWidth={1.5}/>)}
+        <circle cx={cx} cy={cy} r={ir} fill={C.card}/>
+      </svg>;
+    }
+
+    function MiniBar({val,max,color}){
+      const w=max>0?Math.min(100,(Math.abs(val)/max)*100):0;
+      return <div style={{display:'flex',alignItems:'center',gap:6}}>
+        <div style={{flex:1,height:4,background:C.border,borderRadius:2,overflow:'hidden'}}>
+          <div style={{width:`${w}%`,height:'100%',background:color,borderRadius:2}}/>
+        </div>
+        <span style={{fontSize:11,fontFamily:'monospace',color,minWidth:52,textAlign:'right'}}>{pct(val)}</span>
+      </div>;
+    }
+
+    const Badge = ({tipo}) => <span style={{
+      background:(TYPE_COLOR[tipo]||C.muted)+'1A',color:TYPE_COLOR[tipo]||C.muted,
+      border:`1px solid ${(TYPE_COLOR[tipo]||C.muted)}33`,
+      borderRadius:4,padding:'2px 7px',fontSize:10,fontWeight:700,
+      letterSpacing:'0.06em',textTransform:'uppercase',whiteSpace:'nowrap',
+    }}>{tipo}</span>;
+
+    const Th = ({children,right,onClick,sorted}) => <th onClick={onClick} style={{
+      padding:'10px 12px',textAlign:right?'right':'left',fontSize:10,
+      color:sorted?C.white:C.muted,fontWeight:700,letterSpacing:'0.07em',
+      textTransform:'uppercase',borderBottom:`1px solid ${C.border}`,
+      cursor:onClick?'pointer':'default',userSelect:'none',whiteSpace:'nowrap',
+    }}>{children}{sorted?(sorted==='asc'?' ↑':' ↓'):''}</th>;
+
+    function FInp({label,...props}){
+      return <label style={{display:'flex',flexDirection:'column',gap:5,flex:1,minWidth:0}}>
+        <span style={{fontSize:10,color:C.muted,letterSpacing:'0.06em',textTransform:'uppercase'}}>{label}</span>
+        <input {...props} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,
+          padding:'9px 12px',color:C.white,fontSize:13,outline:'none',
+          fontFamily:'inherit',width:'100%',boxSizing:'border-box',...(props.style||{})}}/>
+      </label>;
+    }
+    function FSel({label,options,...props}){
+      return <label style={{display:'flex',flexDirection:'column',gap:5,flex:1,minWidth:0}}>
+        <span style={{fontSize:10,color:C.muted,letterSpacing:'0.06em',textTransform:'uppercase'}}>{label}</span>
+        <select {...props} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,
+          padding:'9px 12px',color:C.white,fontSize:13,outline:'none',
+          fontFamily:'inherit',width:'100%',boxSizing:'border-box',appearance:'none'}}>
+          {options.map(o=><option key={o.value??o} value={o.value??o}>{o.label??o}</option>)}
+        </select>
+      </label>;
+    }
+
+    function exportCSV(rows){
+      const h=['ticker','tipo','moneda','precio','cantidad','costo_prom','costo_total','valor_actual','ganancia','ganancia_pct'];
+      const lines=[h.join(','),...rows.map(r=>h.map(k=>{const v=r[k];return typeof v==='number'?v.toFixed(2):(v??'');}).join(','))];
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));
+      a.download=`cartera_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+    }
+    function exportTxCSV(txs){
+      const h=['fecha','tipo_op','ticker','tipo_activo','cantidad','precio','comision','total','moneda','nota'];
+      const lines=[h.join(','),...txs.map(t=>h.map(k=>{
+        if(k==='total') return (num(t.cantidad)*num(t.precio)+num(t.comision)).toFixed(2);
+        const v=t[k];return typeof v==='number'?v.toFixed(2):(v??'');
+      }).join(','))];
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));
+      a.download=`movimientos_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+    }
+
+    // ── Main App ─────────────────────────────────────────────────────────────
+    function App(){
+      const [sheetUrl,setSheetUrl] = useState(lsGet('sheet_url')||'');
+      const [assets,setAssets]     = useState(DEMO);
+      const [isDemo,setIsDemo]     = useState(true);
+      const [loading,setLoading]   = useState(false);
+      const [sheetErr,setSheetErr] = useState('');
+      const [lastSync,setLastSync] = useState(null);
+      const [showSheet,setShowSheet] = useState(false);
+      const [apiKey,setApiKey]     = useState(lsGet('gsheets_key')||'');
+      const [transactions,setTransactions] = useState(lsGet('portfolio_txs')||[]);
+      const [view,setView]         = useState('cartera');
+      const [filterTipo,setFilterTipo] = useState('Todos');
+      const [filterTicker,setFilterTicker] = useState('');
+      const [sortCol,setSortCol]   = useState('valor_actual');
+      const [sortDir,setSortDir]   = useState('desc');
+      const [toast,setToast]       = useState('');
+      const [txSearch,setTxSearch] = useState('');
+      const [txForm,setTxForm]     = useState({
+        fecha:new Date().toISOString().slice(0,10),
+        tipo_op:'Compra',ticker:'',tipo_activo:'Acciones',
+        cantidad:'',precio:'',comision:'',moneda:'ARS',nota:'',
+      });
+      const [txError,setTxError]   = useState('');
+
+      const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),2800); };
+
+      const syncSheet = async () => {
+        if(!sheetUrl.trim()) return;
+        setLoading(true); setSheetErr('');
+        try {
+          const rows = await fetchSheet(sheetUrl.trim(), apiKey);
+          lsSet('gsheets_key', apiKey);
+          lsSet('sheet_url', sheetUrl.trim());
+          setAssets(rows); setIsDemo(false); setLastSync(new Date());
+          setShowSheet(false);
+          showToast(`✓ ${rows.length} activos sincronizados`);
+        } catch(e){ setSheetErr(e.message); }
+        setLoading(false);
+      };
+
+      const enriched = useMemo(()=>{
+        const st=new Set(assets.map(a=>a.ticker.toUpperCase()));
+        const fromSheet=assets.map(a=>{
+          const myTxs=transactions.filter(t=>t.ticker.toUpperCase()===a.ticker.toUpperCase());
+          const compras=myTxs.filter(t=>t.tipo_op==='Compra');
+          const txU=compras.reduce((s,t)=>s+num(t.cantidad),0);
+          const txC=compras.reduce((s,t)=>s+num(t.cantidad)*num(t.precio)+num(t.comision),0);
+          const txCant=myTxs.reduce((s,t)=>s+(t.tipo_op==='Compra'?num(t.cantidad):-num(t.cantidad)),0);
+          const cantidad=a.cantidad>0?a.cantidad:txCant;
+          const costo_prom=a.costo_prom>0?a.costo_prom:(txU>0?txC/txU:0);
+          const valor_actual=a.valor_actual>0?a.valor_actual:a.precio*cantidad;
+          const costo_total=costo_prom*cantidad;
+          const ganancia=valor_actual-costo_total;
+          const ganancia_pct=costo_total>0?(ganancia/costo_total)*100:0;
+          return {...a,cantidad,costo_prom,valor_actual,costo_total,ganancia,ganancia_pct};
+        });
+        const extras=[...new Set(transactions.map(t=>t.ticker.toUpperCase()).filter(t=>!st.has(t)))].map(ticker=>{
+          const myTxs=transactions.filter(t=>t.ticker.toUpperCase()===ticker);
+          const compras=myTxs.filter(t=>t.tipo_op==='Compra');
+          const cantidad=myTxs.reduce((s,t)=>s+(t.tipo_op==='Compra'?num(t.cantidad):-num(t.cantidad)),0);
+          const costo_total=compras.reduce((s,t)=>s+num(t.cantidad)*num(t.precio)+num(t.comision),0);
+          const u=compras.reduce((s,t)=>s+num(t.cantidad),0);
+          return {ticker,tipo:myTxs[0]?.tipo_activo||'Otro',precio:0,cantidad,
+            costo_prom:u>0?costo_total/u:0,valor_actual:0,moneda:myTxs[0]?.moneda||'ARS',
+            costo_total,ganancia:0,ganancia_pct:0,sinPrecio:true};
+        }).filter(a=>a.cantidad>0);
+        return [...fromSheet,...extras];
+      },[assets,transactions]);
+
+      const totalValor=enriched.reduce((s,a)=>s+a.valor_actual,0);
+      const totalCosto=enriched.reduce((s,a)=>s+a.costo_total,0);
+      const totalGanancia=totalValor-totalCosto;
+      const totalPct=totalCosto>0?(totalGanancia/totalCosto)*100:0;
+      const byTipo=useMemo(()=>ASSET_TYPES.reduce((acc,t)=>{acc[t]=enriched.filter(a=>a.tipo===t).reduce((s,a)=>s+a.valor_actual,0);return acc;},{}), [enriched]);
+      const pieSlices=useMemo(()=>ASSET_TYPES.filter(t=>byTipo[t]>0).map(t=>({label:t,color:TYPE_COLOR[t],pct:byTipo[t]/totalValor,val:byTipo[t]})),[byTipo,totalValor]);
+      const visible=useMemo(()=>{
+        let rows=enriched;
+        if(filterTipo!=='Todos') rows=rows.filter(a=>a.tipo===filterTipo);
+        if(filterTicker.trim()) rows=rows.filter(a=>a.ticker.toUpperCase().includes(filterTicker.toUpperCase()));
+        return [...rows].sort((a,b)=>{const av=a[sortCol]??0,bv=b[sortCol]??0;return sortDir==='asc'?(av>bv?1:-1):(av<bv?1:-1);});
+      },[enriched,filterTipo,filterTicker,sortCol,sortDir]);
+      const maxGainPct=useMemo(()=>Math.max(...enriched.map(a=>Math.abs(a.ganancia_pct)),1),[enriched]);
+      const doSort=col=>{if(sortCol===col)setSortDir(d=>d==='asc'?'desc':'asc');else{setSortCol(col);setSortDir('desc');}};
+
+      const addTx=()=>{
+        setTxError('');
+        if(!txForm.ticker.trim()) return setTxError('Ingresá el ticker.');
+        if(num(txForm.cantidad)<=0) return setTxError('Cantidad inválida.');
+        if(num(txForm.precio)<=0) return setTxError('Precio inválido.');
+        const newTx={id:Date.now().toString(),...txForm,
+          ticker:txForm.ticker.toUpperCase().trim(),
+          cantidad:num(txForm.cantidad),precio:num(txForm.precio),comision:num(txForm.comision)};
+        const updated=[newTx,...transactions];
+        setTransactions(updated); lsSet('portfolio_txs',updated);
+        setTxForm(f=>({...f,ticker:'',cantidad:'',precio:'',comision:'',nota:''}));
+        showToast(`✓ ${newTx.tipo_op} de ${newTx.ticker} registrada`);
+        setView('movimientos');
+      };
+      const deleteTx=id=>{
+        const updated=transactions.filter(t=>t.id!==id);
+        setTransactions(updated); lsSet('portfolio_txs',updated);
+        showToast('Operación eliminada');
+      };
+      const filteredTxs=useMemo(()=>txSearch.trim()?transactions.filter(t=>t.ticker.toUpperCase().includes(txSearch.toUpperCase())||t.nota?.toLowerCase().includes(txSearch.toLowerCase())):transactions,[transactions,txSearch]);
+
+      return <div style={{minHeight:'100vh',background:C.bg,color:C.white,fontFamily:"'Inter',system-ui,sans-serif",paddingBottom:60}}>
+
+        {toast && <div style={{position:'fixed',top:16,left:'50%',transform:'translateX(-50%)',zIndex:9999,
+          background:C.green,color:'#000',borderRadius:8,padding:'10px 20px',
+          fontSize:13,fontWeight:700,boxShadow:'0 8px 30px #0009',whiteSpace:'nowrap'}}>{toast}</div>}
+
+        {/* Header */}
+        <div style={{background:C.panel,borderBottom:`1px solid ${C.border}`,padding:'16px 16px 12px'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+            <div>
+              <h1 style={{margin:0,fontSize:18,fontWeight:800,letterSpacing:'-0.03em'}}>Mi Cartera</h1>
+              <p style={{margin:'2px 0 0',fontSize:11,color:C.muted}}>
+                {isDemo?'Datos demo — conectá tu hoja':`Hoja conectada · ${lastSync?.toLocaleTimeString('es-AR')}`}
+              </p>
+            </div>
+            <button onClick={()=>setShowSheet(s=>!s)} style={{
+              background:showSheet?C.accent:C.card,color:showSheet?'#fff':C.sub,
+              border:`1px solid ${showSheet?C.accent:C.border}`,borderRadius:8,
+              padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',
+            }}>{isDemo?'🔗 Conectar hoja':'↻ Reconectar'}</button>
+          </div>
+
+          {showSheet && <div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
+            <input value={sheetUrl} onChange={e=>setSheetUrl(e.target.value)}
+              placeholder="URL de edición: docs.google.com/spreadsheets/d/.../edit"
+              style={{background:C.bg,border:`1px solid ${sheetErr?C.red:C.border}`,borderRadius:7,
+                padding:'10px 14px',color:C.white,fontSize:13,outline:'none',
+                fontFamily:'inherit',width:'100%',boxSizing:'border-box'}}/>
+            <input value={apiKey} onChange={e=>setApiKey(e.target.value)}
+              placeholder="API Key de Google (AIzaSy…)"
+              type="password"
+              style={{background:C.bg,border:`1px solid ${sheetErr?C.red:C.border}`,borderRadius:7,
+                padding:'10px 14px',color:C.white,fontSize:13,outline:'none',
+                fontFamily:'inherit',width:'100%',boxSizing:'border-box'}}/>
+            <button onClick={syncSheet} disabled={loading} style={{
+              background:loading?C.muted:C.accent,color:'#fff',border:'none',
+              borderRadius:7,padding:'11px',fontWeight:700,fontSize:13,
+              cursor:loading?'not-allowed':'pointer',
+            }}>{loading?'Sincronizando…':'↻ Sincronizar'}</button>
+            {sheetErr && <p style={{margin:0,fontSize:12,color:C.red,lineHeight:1.5}}>⚠ {sheetErr}</p>}
+            <div style={{background:C.bg,borderRadius:8,padding:'12px 14px',fontSize:11,color:C.muted,lineHeight:1.8}}>
+              <strong style={{color:C.sub}}>URL:</strong> Abrí tu hoja → copiá la URL del navegador (termina en /edit)<br/>
+              <strong style={{color:C.sub}}>API Key:</strong> La que generaste en Google Cloud Console (AIzaSy…)<br/>
+              <strong style={{color:C.sub}}>Compartir:</strong> La hoja debe estar en "Cualquiera con el link puede ver"
+            </div>
+          </div>}
+        </div>
+
+        <div style={{maxWidth:1140,margin:'0 auto',padding:'0 12px'}}>
+
+          {/* Summary */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:12}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+              <div style={{fontSize:10,color:C.muted,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:4}}>Valor de mercado</div>
+              <div style={{fontSize:20,fontWeight:800,letterSpacing:'-0.03em'}}>{money(totalValor)}</div>
+              <div style={{fontSize:11,color:C.sub,marginTop:3}}>{enriched.length} posiciones</div>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+              <div style={{fontSize:10,color:C.muted,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:4}}>Resultado total</div>
+              <div style={{fontSize:20,fontWeight:800,letterSpacing:'-0.03em',color:sc(totalGanancia)}}>{money(totalGanancia)}</div>
+              <div style={{fontSize:11,color:sc(totalPct),marginTop:3}}>{pct(totalPct)}</div>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+              <div style={{fontSize:10,color:C.muted,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:4}}>Costo invertido</div>
+              <div style={{fontSize:18,fontWeight:700,color:C.sub}}>{money(totalCosto)}</div>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 14px',display:'flex',alignItems:'center',gap:10}}>
+              <PieChart slices={pieSlices} size={72}/>
+              <div style={{display:'flex',flexDirection:'column',gap:4,minWidth:0}}>
+                {pieSlices.map(s=><div key={s.label} style={{display:'flex',alignItems:'center',gap:5}}>
+                  <div style={{width:7,height:7,borderRadius:2,background:s.color,flexShrink:0}}/>
+                  <span style={{fontSize:10,color:C.sub,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.label}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:s.color,marginLeft:'auto',paddingLeft:4}}>{(s.pct*100).toFixed(0)}%</span>
+                </div>)}
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div style={{display:'flex',marginTop:16,borderBottom:`1px solid ${C.border}`}}>
+            {[{id:'cartera',label:'Cartera'},{id:'movimientos',label:`Movimientos${transactions.length?` (${transactions.length})`:''}`},{id:'agregar',label:'+ Op.'}].map(tab=>
+              <button key={tab.id} onClick={()=>setView(tab.id)} style={{
+                background:'none',border:'none',
+                borderBottom:`2px solid ${view===tab.id?C.accent:'transparent'}`,
+                color:view===tab.id?C.white:C.muted,padding:'9px 14px',
+                cursor:'pointer',fontSize:13,fontWeight:view===tab.id?700:400,fontFamily:'inherit',
+              }}>{tab.label}</button>
+            )}
+          </div>
+
+          {/* ── VIEW: Cartera ── */}
+          {view==='cartera' && <div style={{marginTop:12}}>
+            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:12}}>
+              <div style={{display:'flex',gap:8}}>
+                <input value={filterTicker} onChange={e=>setFilterTicker(e.target.value)}
+                  placeholder="Buscar ticker…"
+                  style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,
+                    padding:'8px 12px',color:C.white,fontSize:13,outline:'none',fontFamily:'inherit',flex:1}}/>
+                <button onClick={()=>exportCSV(visible)} style={{
+                  background:'transparent',border:`1px solid ${C.border}`,color:C.sub,
+                  borderRadius:7,padding:'8px 12px',cursor:'pointer',fontSize:12,fontFamily:'inherit',whiteSpace:'nowrap',
+                }}>↓ CSV</button>
+              </div>
+              <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                {['Todos',...ASSET_TYPES].map(t=>
+                  <button key={t} onClick={()=>setFilterTipo(t)} style={{
+                    background:filterTipo===t?(TYPE_COLOR[t]||C.accent)+'22':'transparent',
+                    border:`1px solid ${filterTipo===t?(TYPE_COLOR[t]||C.accent):C.border}`,
+                    color:filterTipo===t?(TYPE_COLOR[t]||C.white):C.muted,
+                    borderRadius:6,padding:'5px 10px',cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit',
+                  }}>{t}</button>
+                )}
+              </div>
+            </div>
+
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
+              <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',minWidth:720}}>
+                  <thead><tr>
+                    <Th onClick={()=>doSort('ticker')} sorted={sortCol==='ticker'?sortDir:null}>Ticker</Th>
+                    <Th>Tipo</Th>
+                    <Th right onClick={()=>doSort('precio')} sorted={sortCol==='precio'?sortDir:null}>Precio</Th>
+                    <Th right onClick={()=>doSort('cantidad')} sorted={sortCol==='cantidad'?sortDir:null}>Cant.</Th>
+                    <Th right onClick={()=>doSort('costo_prom')} sorted={sortCol==='costo_prom'?sortDir:null}>Costo prom.</Th>
+                    <Th right onClick={()=>doSort('costo_total')} sorted={sortCol==='costo_total'?sortDir:null}>Invertido</Th>
+                    <Th right onClick={()=>doSort('valor_actual')} sorted={sortCol==='valor_actual'?sortDir:null}>Valor actual</Th>
+                    <Th right onClick={()=>doSort('ganancia')} sorted={sortCol==='ganancia'?sortDir:null}>Ganancia $</Th>
+                    <Th right onClick={()=>doSort('ganancia_pct')} sorted={sortCol==='ganancia_pct'?sortDir:null}>%</Th>
+                  </tr></thead>
+                  <tbody>
+                    {visible.map((a,i)=><tr key={a.ticker} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?'transparent':C.panel+'88'}}>
+                      <td style={{padding:'11px 12px'}}>
+                        <div style={{fontWeight:700,fontSize:13}}>{a.ticker}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{a.moneda}{a.sinPrecio?' · sin precio':''}</div>
+                      </td>
+                      <td style={{padding:'11px 12px'}}><Badge tipo={a.tipo}/></td>
+                      <td style={{padding:'11px 12px',textAlign:'right',fontFamily:'monospace',fontSize:12,color:C.sub}}>{a.sinPrecio?'—':money(a.precio,2)}</td>
+                      <td style={{padding:'11px 12px',textAlign:'right',fontFamily:'monospace',fontSize:12,color:C.sub}}>{a.cantidad.toLocaleString('es-AR',{maximumFractionDigits:4})}</td>
+                      <td style={{padding:'11px 12px',textAlign:'right',fontFamily:'monospace',fontSize:12,color:C.sub}}>{money(a.costo_prom,2)}</td>
+                      <td style={{padding:'11px 12px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{money(a.costo_total)}</td>
+                      <td style={{padding:'11px 12px',textAlign:'right',fontFamily:'monospace',fontSize:12,fontWeight:600}}>{a.sinPrecio?'—':money(a.valor_actual)}</td>
+                      <td style={{padding:'11px 12px',textAlign:'right',fontFamily:'monospace',fontSize:12,fontWeight:700,color:sc(a.ganancia)}}>{a.sinPrecio?'—':money(a.ganancia)}</td>
+                      <td style={{padding:'11px 12px',minWidth:110}}>{a.sinPrecio?<span style={{color:C.muted}}>—</span>:<MiniBar val={a.ganancia_pct} max={maxGainPct} color={sc(a.ganancia_pct)}/>}</td>
+                    </tr>)}
+                  </tbody>
+                  <tfoot><tr style={{borderTop:`2px solid ${C.border}`,background:C.panel}}>
+                    <td colSpan={5} style={{padding:'10px 12px',fontSize:10,color:C.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'}}>{visible.length} posiciones</td>
+                    <td style={{padding:'10px 12px',textAlign:'right',fontFamily:'monospace',fontWeight:700,fontSize:12}}>{money(visible.reduce((s,a)=>s+a.costo_total,0))}</td>
+                    <td style={{padding:'10px 12px',textAlign:'right',fontFamily:'monospace',fontWeight:700,fontSize:12}}>{money(visible.reduce((s,a)=>s+a.valor_actual,0))}</td>
+                    <td style={{padding:'10px 12px',textAlign:'right',fontFamily:'monospace',fontWeight:700,fontSize:12,color:sc(totalGanancia)}}>{money(visible.reduce((s,a)=>s+a.ganancia,0))}</td>
+                    <td/>
+                  </tr></tfoot>
+                </table>
+              </div>
+              {visible.length===0&&<p style={{color:C.muted,padding:32,textAlign:'center',margin:0}}>Sin resultados.</p>}
+            </div>
+
+            {enriched.length>=2&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:12}}>
+              {[{title:'Mejores',rows:[...enriched].filter(a=>!a.sinPrecio).sort((a,b)=>b.ganancia_pct-a.ganancia_pct).slice(0,3)},
+                {title:'Peores',rows:[...enriched].filter(a=>!a.sinPrecio).sort((a,b)=>a.ganancia_pct-b.ganancia_pct).slice(0,3)}].map(({title,rows})=>
+                <div key={title} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+                  <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:10}}>{title}</div>
+                  {rows.map(a=><div key={a.ticker} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{a.ticker}</div><div style={{fontSize:10,color:C.muted}}>{a.tipo}</div></div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontFamily:'monospace',fontWeight:700,fontSize:12,color:sc(a.ganancia_pct)}}>{pct(a.ganancia_pct)}</div>
+                      <div style={{fontSize:11,color:C.sub}}>{money(a.ganancia)}</div>
+                    </div>
+                  </div>)}
+                </div>
+              )}
+            </div>}
+          </div>}
+
+          {/* ── VIEW: Movimientos ── */}
+          {view==='movimientos'&&<div style={{marginTop:12}}>
+            <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center'}}>
+              <input value={txSearch} onChange={e=>setTxSearch(e.target.value)} placeholder="Buscar…"
+                style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,
+                  padding:'8px 12px',color:C.white,fontSize:13,outline:'none',fontFamily:'inherit',flex:1}}/>
+              <button onClick={()=>exportTxCSV(filteredTxs)} style={{background:'transparent',border:`1px solid ${C.border}`,color:C.sub,borderRadius:7,padding:'8px 12px',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>↓ CSV</button>
+              <button onClick={()=>setView('agregar')} style={{background:C.accent,color:'#fff',border:'none',borderRadius:7,padding:'8px 12px',fontWeight:700,fontSize:12,cursor:'pointer'}}>+ Nueva</button>
+            </div>
+            {filteredTxs.length===0
+              ?<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:40,textAlign:'center'}}>
+                <p style={{color:C.muted,margin:'0 0 16px'}}>{transactions.length===0?'Aún no registraste operaciones.':'Sin resultados.'}</p>
+                {transactions.length===0&&<button onClick={()=>setView('agregar')} style={{background:C.accent,color:'#fff',border:'none',borderRadius:7,padding:'10px 20px',cursor:'pointer',fontWeight:700,fontSize:13}}>Registrar primera operación</button>}
+              </div>
+              :<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
+                <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',minWidth:560}}>
+                    <thead><tr>{['Fecha','Op.','Ticker','Tipo','Cant.','Precio','Total','Nota',''].map((h,i)=>
+                      <th key={i} style={{padding:'9px 11px',textAlign:i>3?'right':'left',fontSize:10,color:C.muted,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                    )}</tr></thead>
+                    <tbody>
+                      {filteredTxs.map((t,i)=>{
+                        const total=num(t.cantidad)*num(t.precio)+num(t.comision);
+                        return <tr key={t.id} style={{borderTop:`1px solid ${C.border}`,background:i%2===0?'transparent':C.panel+'66'}}>
+                          <td style={{padding:'10px 11px',fontSize:11,color:C.sub,whiteSpace:'nowrap'}}>{t.fecha}</td>
+                          <td style={{padding:'10px 11px'}}><span style={{fontWeight:700,fontSize:12,color:t.tipo_op==='Compra'?C.green:C.red}}>{t.tipo_op}</span></td>
+                          <td style={{padding:'10px 11px',fontWeight:700,fontSize:13}}>{t.ticker}</td>
+                          <td style={{padding:'10px 11px'}}><Badge tipo={t.tipo_activo}/></td>
+                          <td style={{padding:'10px 11px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{num(t.cantidad).toLocaleString('es-AR',{maximumFractionDigits:4})}</td>
+                          <td style={{padding:'10px 11px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{money(t.precio,2)}</td>
+                          <td style={{padding:'10px 11px',textAlign:'right',fontFamily:'monospace',fontSize:12,fontWeight:700}}>{money(total)}</td>
+                          <td style={{padding:'10px 11px',fontSize:11,color:C.sub,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.nota||'—'}</td>
+                          <td style={{padding:'10px 11px'}}><button onClick={()=>deleteTx(t.id)} style={{background:'none',border:`1px solid ${C.border}`,color:C.red,borderRadius:5,padding:'3px 7px',cursor:'pointer',fontSize:11}}>✕</button></td>
+                        </tr>;
+                      })}
+                    </tbody>
+                    <tfoot><tr style={{borderTop:`2px solid ${C.border}`,background:C.panel}}>
+                      <td colSpan={6} style={{padding:'9px 11px',fontSize:11,color:C.muted}}>
+                        Compras: {money(filteredTxs.filter(t=>t.tipo_op==='Compra').reduce((s,t)=>s+num(t.cantidad)*num(t.precio)+num(t.comision),0))}
+                        {' · '}Ventas: {money(filteredTxs.filter(t=>t.tipo_op==='Venta').reduce((s,t)=>s+num(t.cantidad)*num(t.precio),0))}
+                      </td>
+                      <td colSpan={3}/>
+                    </tr></tfoot>
+                  </table>
+                </div>
+              </div>}
+          </div>}
+
+          {/* ── VIEW: Agregar ── */}
+          {view==='agregar'&&<div style={{marginTop:16}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20}}>
+              <h3 style={{margin:'0 0 18px',fontSize:15,fontWeight:700}}>Registrar operación</h3>
+              <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                <div style={{display:'flex',gap:10}}>
+                  <FSel label="Operación" value={txForm.tipo_op} onChange={e=>setTxForm(f=>({...f,tipo_op:e.target.value}))} options={['Compra','Venta']}/>
+                  <FInp label="Fecha" type="date" value={txForm.fecha} onChange={e=>setTxForm(f=>({...f,fecha:e.target.value}))}/>
+                </div>
+                <div style={{display:'flex',gap:10}}>
+                  <FInp label="Ticker" value={txForm.ticker} placeholder="YPF · AAPL · BTC…" onChange={e=>setTxForm(f=>({...f,ticker:e.target.value.toUpperCase()}))} style={{textTransform:'uppercase'}}/>
+                  <FSel label="Tipo" value={txForm.tipo_activo} onChange={e=>setTxForm(f=>({...f,tipo_activo:e.target.value}))} options={ASSET_TYPES}/>
+                </div>
+                <div style={{display:'flex',gap:10}}>
+                  <FInp label="Cantidad" type="number" placeholder="0" value={txForm.cantidad} onChange={e=>setTxForm(f=>({...f,cantidad:e.target.value}))}/>
+                  <FInp label="Precio unit." type="number" placeholder="0.00" value={txForm.precio} onChange={e=>setTxForm(f=>({...f,precio:e.target.value}))}/>
+                </div>
+                <div style={{display:'flex',gap:10}}>
+                  <FInp label="Comisión" type="number" placeholder="0.00" value={txForm.comision} onChange={e=>setTxForm(f=>({...f,comision:e.target.value}))}/>
+                  <FSel label="Moneda" value={txForm.moneda} onChange={e=>setTxForm(f=>({...f,moneda:e.target.value}))} options={['ARS','USD','USDT']}/>
+                </div>
+                {txForm.cantidad&&txForm.precio&&<div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px'}}>
+                  <div style={{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}}>Total de la operación</div>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div style={{fontSize:22,fontWeight:800,fontFamily:'monospace'}}>
+                      {money(num(txForm.cantidad)*num(txForm.precio)+num(txForm.comision),2)}
+                      <span style={{fontSize:12,color:C.muted,marginLeft:6}}>{txForm.moneda}</span>
+                    </div>
+                    <div style={{fontSize:12,color:C.sub,textAlign:'right'}}>
+                      <div>{num(txForm.cantidad).toLocaleString('es-AR',{maximumFractionDigits:4})} u.</div>
+                      <div>@ {money(num(txForm.precio),2)}</div>
+                      {num(txForm.comision)>0&&<div style={{color:C.muted}}>+ {money(num(txForm.comision),2)} comis.</div>}
+                    </div>
+                  </div>
+                </div>}
+                {txForm.ticker.trim().length>=1&&(()=>{
+                  const match=enriched.find(a=>a.ticker.toUpperCase()===txForm.ticker.toUpperCase());
+                  return match?<div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
+                    <div style={{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>Posición actual · {match.ticker}</div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                      {[['Precio actual',match.sinPrecio?'Sin cotiz.':money(match.precio,2)],['Cantidad',match.cantidad.toLocaleString('es-AR',{maximumFractionDigits:4})],['Costo prom.',money(match.costo_prom,2)],['Resultado',pct(match.ganancia_pct)]].map(([k,v])=>
+                        <div key={k}><div style={{fontSize:10,color:C.muted}}>{k}</div><div style={{fontSize:13,fontFamily:'monospace',color:C.white}}>{v}</div></div>
+                      )}
+                    </div>
+                  </div>:null;
+                })()}
+                <FInp label="Nota (opcional)" value={txForm.nota} placeholder="Ej: compra en baja" onChange={e=>setTxForm(f=>({...f,nota:e.target.value}))}/>
+                {txError&&<p style={{margin:0,fontSize:12,color:C.red}}>⚠ {txError}</p>}
+                <button onClick={addTx} style={{background:txForm.tipo_op==='Compra'?C.green:C.red,color:'#000',border:'none',borderRadius:8,padding:'14px',fontWeight:800,fontSize:15,cursor:'pointer'}}>
+                  Registrar {txForm.tipo_op}
+                </button>
+              </div>
+            </div>
+          </div>}
+
+        </div>
+      </div>;
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
