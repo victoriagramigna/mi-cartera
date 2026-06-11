@@ -362,40 +362,24 @@ function App(){
     setLoading(false);
   };
 
+  // Cartera viene SOLO de la hoja de cálculo.
+  // Los movimientos registrados en la app son RECORDATORIOS — no modifican la cartera.
+  // Flujo: registrás en app → lo cargás en la hoja → sincronizás → ves los cambios → borrás el movimiento.
   const enriched = useMemo(()=>{
-    const st=new Set(assets.map(a=>a.ticker.toUpperCase()));
-    const fromSheet=assets.map(a=>{
-      const myTxs=transactions.filter(t=>t.ticker.toUpperCase()===a.ticker.toUpperCase());
-      const compras=myTxs.filter(t=>t.tipo_op==='Compra');
-      const txU=compras.reduce((s,t)=>s+num(t.cantidad),0);
-      const txC=compras.reduce((s,t)=>s+num(t.cantidad)*num(t.precio)+num(t.comision),0);
-      const txCant=myTxs.reduce((s,t)=>s+(t.tipo_op==='Compra'?num(t.cantidad):-num(t.cantidad)),0);
-      const cantidad=a.cantidad>0?a.cantidad:txCant;
-      const costo_prom=a.costo_prom>0?a.costo_prom:(txU>0?txC/txU:0);
-      const valor_actual=a.valor_actual>0?a.valor_actual:a.precio*cantidad;
-      const costo_total=costo_prom*cantidad;
-      const ganancia=valor_actual-costo_total;
-      const ganancia_pct=costo_total>0?(ganancia/costo_total)*100:0;
-      // USD
-      const costo_total_usd=toUSD(costo_total);
-      const valor_actual_usd=toUSD(valor_actual);
-      const ganancia_usd=valor_actual_usd-costo_total_usd;
+    return assets.map(a=>{
+      const cantidad = a.cantidad;
+      const costo_prom = a.costo_prom;
+      const valor_actual = a.valor_actual>0 ? a.valor_actual : a.precio*cantidad;
+      const costo_total = costo_prom*cantidad;
+      const ganancia = valor_actual-costo_total;
+      const ganancia_pct = costo_total>0 ? (ganancia/costo_total)*100 : 0;
+      const costo_total_usd = toUSD(costo_total);
+      const valor_actual_usd = toUSD(valor_actual);
+      const ganancia_usd = valor_actual_usd-costo_total_usd;
       return {...a,cantidad,costo_prom,valor_actual,costo_total,ganancia,ganancia_pct,
               costo_total_usd,valor_actual_usd,ganancia_usd};
     });
-    const extras=[...new Set(transactions.map(t=>t.ticker.toUpperCase()).filter(t=>!st.has(t)))].map(ticker=>{
-      const myTxs=transactions.filter(t=>t.ticker.toUpperCase()===ticker);
-      const compras=myTxs.filter(t=>t.tipo_op==='Compra');
-      const cantidad=myTxs.reduce((s,t)=>s+(t.tipo_op==='Compra'?num(t.cantidad):-num(t.cantidad)),0);
-      const costo_total=compras.reduce((s,t)=>s+num(t.cantidad)*num(t.precio)+num(t.comision),0);
-      const u=compras.reduce((s,t)=>s+num(t.cantidad),0);
-      const costo_total_usd=toUSD(costo_total);
-      return {ticker,tipo:myTxs[0]?.tipo_activo||'Otro',precio:0,cantidad,
-        costo_prom:u>0?costo_total/u:0,valor_actual:0,moneda:myTxs[0]?.moneda||'ARS',
-        costo_total,ganancia:0,ganancia_pct:0,costo_total_usd,valor_actual_usd:0,ganancia_usd:0,sinPrecio:true};
-    }).filter(a=>a.cantidad>0);
-    return [...fromSheet,...extras];
-  },[assets,transactions,mep]);
+  },[assets,mep]);
 
   const totalValor=enriched.reduce((s,a)=>s+a.valor_actual,0);
   const totalCosto=enriched.reduce((s,a)=>s+a.costo_total,0);
@@ -728,6 +712,13 @@ function App(){
 
       {/* ── VIEW: Movimientos ── */}
       {view==='movimientos'&&<div style={{marginTop:12}}>
+        <div style={{background:'#0f2318',border:`1px solid #22c55e55`,borderRadius:10,padding:'11px 14px',marginBottom:12,display:'flex',gap:10,alignItems:'center'}}>
+          <span style={{fontSize:15}}>📋</span>
+          <div style={{fontSize:12,color:'#86efac',lineHeight:1.5}}>
+            <strong>Recordatorios</strong> — no modifican tu cartera.<br/>
+            Cargalos en la hoja → sincronizá → borrá el movimiento con ✕
+          </div>
+        </div>
         <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center'}}>
           <input value={txSearch} onChange={e=>setTxSearch(e.target.value)} placeholder="Buscar…"
             style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,
