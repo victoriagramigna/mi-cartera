@@ -102,7 +102,7 @@ async function fetchSheet(url, apiKey) {
     costo_prom: num(pick(row,'costo_prom')),
     valor_actual: num(pick(row,'valor_actual')),
     moneda: pick(row,'moneda')||'ARS',
-  })).filter(r=>r.ticker&&r.precio>0);
+  })).filter(r=>r.ticker&&r.precio>0&&r.cantidad>0);
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
   }
@@ -366,7 +366,7 @@ function App(){
   // Los movimientos registrados en la app son RECORDATORIOS — no modifican la cartera.
   // Flujo: registrás en app → lo cargás en la hoja → sincronizás → ves los cambios → borrás el movimiento.
   const enriched = useMemo(()=>{
-    return assets.map(a=>{
+    return assets.filter(a => a.cantidad > 0).map(a=>{
       const cantidad = a.cantidad;
       const costo_prom = a.costo_prom;
       const valor_actual = a.valor_actual>0 ? a.valor_actual : a.precio*cantidad;
