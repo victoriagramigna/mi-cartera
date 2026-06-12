@@ -108,7 +108,7 @@ async function fetchSheet(url, apiKey) {
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
   }
-  return mapped;
+  return {assets: mapped, soldRows};
 }
 
 // ── Storage ─────────────────────────────────────────────────────────────────
@@ -300,6 +300,7 @@ function App(){
   const [showSheet,setShowSheet] = useState(false);
   const [apiKey,setApiKey] = useState(lsGet('gsheets_key')||'');
   const [transactions,setTransactions] = useState(lsGet('portfolio_txs')||[]);
+  const [soldAssets,setSoldAssets] = useState([]);
   const [view,setView] = useState('cartera');
   const [filterTipo,setFilterTipo] = useState('Todos');
   const [filterTicker,setFilterTicker] = useState('');
@@ -354,10 +355,10 @@ function App(){
     if(!sheetUrl.trim()) return;
     setLoading(true); setSheetErr('');
     try {
-      const rows = await fetchSheet(sheetUrl.trim(), apiKey);
+      const {assets: rows, soldRows: sold} = await fetchSheet(sheetUrl.trim(), apiKey);
       lsSet('gsheets_key', apiKey);
       lsSet('sheet_url', sheetUrl.trim());
-      setAssets(rows); setIsDemo(false); setLastSync(new Date());
+      setAssets(rows); setSoldAssets(sold); setIsDemo(false); setLastSync(new Date());
       setShowSheet(false);
       showToast(`✓ ${rows.length} activos sincronizados`);
     } catch(e){ setSheetErr(e.message); }
@@ -655,11 +656,11 @@ function App(){
                   <div style={{fontSize:10,color:sc(totalPct)}}>{pct(totalPct)}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada ({ventas.length} ventas)</div>
+                  <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:''}</div>
                   {ventas.length===0
                     ?<div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
                     :(()=>{
-                      const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+                      const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
                       const ganRealTxs=ventas.reduce((s,t)=>{
                         const asset=enriched.find(a=>a.ticker===t.ticker);
                         const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
@@ -678,7 +679,7 @@ function App(){
             {['Acciones','CEDEAR','Cripto'].map(tipo=>{
               const noReal=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+a.ganancia,0);
               const ventasTipo=ventas.filter(t=>t.tipo_activo===tipo);
-              const ganRealSheet=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+              const ganRealSheet=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.filter(a=>a.tipo===tipo).reduce((s,a)=>s+(a.ganancia_realizada||0),0);
               const ganRealTxs=ventasTipo.reduce((s,t)=>{
                 const asset=enriched.find(a=>a.ticker===t.ticker);
                 const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
