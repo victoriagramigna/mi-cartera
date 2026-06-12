@@ -92,6 +92,7 @@ async function fetchSheet(url, apiKey) {
     costo_prom:['costo_prom','precio_promedio','costo promedio','avg_cost','ppc','costo_unitario'],
     valor_actual:['valor_actual','valor actual','market_value','total','monto'],
     moneda:['moneda','currency','divisa'],
+    ganancia_realizada:['ganancia_realizada','gan_realizada','realizada','ganancia realizada'],
   };
   const pick = (row,key) => { for(const a of ALIASES[key]){ const i=headers.indexOf(a); if(i>=0&&row[i]) return row[i]; } return ''; };
   const mapped = rows.slice(1).map(row=>({
@@ -102,6 +103,7 @@ async function fetchSheet(url, apiKey) {
     costo_prom: num(pick(row,'costo_prom')),
     valor_actual: num(pick(row,'valor_actual')),
     moneda: pick(row,'moneda')||'ARS',
+    ganancia_realizada: num(pick(row,'ganancia_realizada')),
   })).filter(r=>r.ticker&&r.precio>0&&r.cantidad>0);
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
@@ -377,7 +379,8 @@ function App(){
       const valor_actual_usd = toUSD(valor_actual);
       const ganancia_usd = valor_actual_usd-costo_total_usd;
       return {...a,cantidad,costo_prom,valor_actual,costo_total,ganancia,ganancia_pct,
-              costo_total_usd,valor_actual_usd,ganancia_usd};
+              costo_total_usd,valor_actual_usd,ganancia_usd,
+              ganancia_realizada:a.ganancia_realizada||0};
     });
   },[assets,mep]);
 
@@ -656,11 +659,13 @@ function App(){
                   {ventas.length===0
                     ?<div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
                     :(()=>{
-                      const ganReal=ventas.reduce((s,t)=>{
+                      const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+                      const ganRealTxs=ventas.reduce((s,t)=>{
                         const asset=enriched.find(a=>a.ticker===t.ticker);
                         const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
                         return s+(num(t.cantidad)*(num(t.precio)-costoProm));
                       },0);
+                      const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
                       return <>
                         <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
                         {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
@@ -673,11 +678,13 @@ function App(){
             {['Acciones','CEDEAR','Cripto'].map(tipo=>{
               const noReal=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+a.ganancia,0);
               const ventasTipo=ventas.filter(t=>t.tipo_activo===tipo);
-              const ganReal=ventasTipo.reduce((s,t)=>{
+              const ganRealSheet=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+              const ganRealTxs=ventasTipo.reduce((s,t)=>{
                 const asset=enriched.find(a=>a.ticker===t.ticker);
                 const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
                 return s+(num(t.cantidad)*(num(t.precio)-costoProm));
               },0);
+              const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
               const color=TYPE_COLOR[tipo]||C.muted;
               if(enriched.filter(a=>a.tipo===tipo).length===0&&ventasTipo.length===0) return null;
               return <div key={tipo} style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'80px 1fr 1fr',gap:8,alignItems:'start'}}>
