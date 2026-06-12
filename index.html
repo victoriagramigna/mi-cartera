@@ -93,7 +93,7 @@ async function fetchSheet(url, apiKey) {
     ganancia_realizada:['ganancia_realizada','gan_realizada','realizada','ganancia realizada'],
   };
   const pick = (row,key) => { for(const a of ALIASES[key]){ const i=headers.indexOf(a); if(i>=0&&row[i]) return row[i]; } return ''; };
-  const mapped = rows.slice(1).map(row=>({
+  const allRows = rows.slice(1).map(row=>({
     ticker: pick(row,'ticker'),
     tipo: pick(row,'tipo')||'Otro',
     precio: num(pick(row,'precio')),
@@ -102,11 +102,15 @@ async function fetchSheet(url, apiKey) {
     valor_actual: num(pick(row,'valor_actual')),
     moneda: pick(row,'moneda')||'ARS',
     ganancia_realizada: num(pick(row,'ganancia_realizada')),
-  })).filter(r=>r.ticker&&r.precio>0&&r.cantidad>0);
+  })).filter(r=>r.ticker);
+  // Activos con posición activa
+  const mapped = allRows.filter(r=>r.cantidad>0&&r.precio>0);
+  // Activos vendidos: sin unidades pero con ganancia realizada registrada
+  const sold = allRows.filter(r=>r.cantidad===0&&r.ganancia_realizada>0);
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
   }
-  return {assets: mapped, soldRows: []};
+  return {assets: mapped, soldRows: sold};
 }
 
 // ── Storage ─────────────────────────────────────────────────────────────────
@@ -650,23 +654,26 @@ function App(){
                   <div style={{fontSize:10,color:sc(totalPct)}}>{pct(totalPct)}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:''}</div>
-                  {ventas.length===0
-                    ?<div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
-                    :(()=>{
-                      const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
-                      const ganRealTxs=ventas.reduce((s,t)=>{
-                        const asset=enriched.find(a=>a.ticker===t.ticker);
-                        const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
-                        return s+(num(t.cantidad)*(num(t.precio)-costoProm));
-                      },0);
-                      const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
-                      return <>
+                  {(()=>{
+                    const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+                    const ganRealTxs=ventas.reduce((s,t)=>{
+                      const asset=enriched.find(a=>a.ticker===t.ticker);
+                      const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
+                      return s+(num(t.cantidad)*(num(t.precio)-costoProm));
+                    },0);
+                    const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
+                    const label=soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:'';
+                    return ganReal>0
+                      ?<>
+                        <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{label}</div>
                         <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
                         {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
+                      </>
+                      :<>
+                        <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada</div>
+                        <div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
                       </>;
-                    })()
-                  }
+                  })()}
                 </div>
               </div>
             </div>
@@ -681,7 +688,8 @@ function App(){
               },0);
               const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
               const color=TYPE_COLOR[tipo]||C.muted;
-              if(enriched.filter(a=>a.tipo===tipo).length===0&&ventasTipo.length===0) return null;
+              const tieneActivosOVentas=enriched.filter(a=>a.tipo===tipo).length>0||soldAssets.filter(a=>a.tipo===tipo).length>0||ventasTipo.length>0;
+              if(!tieneActivosOVentas) return null;
               return <div key={tipo} style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'80px 1fr 1fr',gap:8,alignItems:'start'}}>
                 <div style={{display:'flex',alignItems:'center',gap:5,paddingTop:2}}>
                   <div style={{width:7,height:7,borderRadius:2,background:color,flexShrink:0}}/>
@@ -694,12 +702,12 @@ function App(){
                 </div>
                 <div>
                   <div style={{fontSize:9,color:'#4ade80',marginBottom:2}}>Realizada</div>
-                  {ventasTipo.length===0
-                    ?<div style={{fontSize:10,color:C.muted}}>sin ventas</div>
-                    :<>
+                  {ganReal>0
+                    ?<>
                       <div style={{fontSize:12,fontFamily:'monospace',fontWeight:700,color:sc(ganReal)}}>{mask(money(ganReal))}</div>
                       {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
                     </>
+                    :<div style={{fontSize:10,color:C.muted}}>sin ventas</div>
                   }
                 </div>
               </div>;
