@@ -370,10 +370,7 @@ function App(){
       const cantidad = a.cantidad;
       const costo_prom = a.costo_prom;
       const valor_actual = a.valor_actual>0 ? a.valor_actual : a.precio*cantidad;
-      
-      // Si es Cripto (moneda/stablecoin), el costo iguala al valor actual para anular la ganancia ficticia por inflación
-      const costo_total = (a.tipo === 'Cripto') ? valor_actual : (costo_prom * cantidad);
-      
+      const costo_total = costo_prom*cantidad;
       const ganancia = valor_actual-costo_total;
       const ganancia_pct = costo_total>0 ? (ganancia/costo_total)*100 : 0;
       const costo_total_usd = toUSD(costo_total);
@@ -416,9 +413,11 @@ function App(){
     if(!txForm.ticker.trim()) return setTxError('Ingresá el ticker.');
     if(num(txForm.cantidad)<=0) return setTxError('Cantidad inválida.');
     if(num(txForm.precio)<=0) return setTxError('Precio inválido.');
+    const assetMatch=enriched.find(a=>a.ticker.toUpperCase()===txForm.ticker.toUpperCase().trim());
     const newTx={id:Date.now().toString(),...txForm,
       ticker:txForm.ticker.toUpperCase().trim(),
-      cantidad:num(txForm.cantidad),precio:num(txForm.precio),comision:num(txForm.comision)};
+      cantidad:num(txForm.cantidad),precio:num(txForm.precio),comision:num(txForm.comision),
+      costo_prom_venta:txForm.tipo_op==='Venta'&&assetMatch?assetMatch.costo_prom:0};
     const updated=[newTx,...transactions];
     setTransactions(updated); lsSet('portfolio_txs',updated);
     setTxForm(f=>({...f,ticker:'',cantidad:'',precio:'',comision:'',nota:''}));
@@ -659,8 +658,8 @@ function App(){
                     :(()=>{
                       const ganReal=ventas.reduce((s,t)=>{
                         const asset=enriched.find(a=>a.ticker===t.ticker);
-                        const costo=asset?num(t.cantidad)*asset.costo_prom:0;
-                        return s+(num(t.cantidad)*num(t.precio)-costo);
+                        const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
+                        return s+(num(t.cantidad)*(num(t.precio)-costoProm));
                       },0);
                       return <>
                         <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
@@ -676,8 +675,8 @@ function App(){
               const ventasTipo=ventas.filter(t=>t.tipo_activo===tipo);
               const ganReal=ventasTipo.reduce((s,t)=>{
                 const asset=enriched.find(a=>a.ticker===t.ticker);
-                const costo=asset?num(t.cantidad)*asset.costo_prom:0;
-                return s+(num(t.cantidad)*num(t.precio)-costo);
+                const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
+                return s+(num(t.cantidad)*(num(t.precio)-costoProm));
               },0);
               const color=TYPE_COLOR[tipo]||C.muted;
               if(enriched.filter(a=>a.tipo===tipo).length===0&&ventasTipo.length===0) return null;
@@ -813,7 +812,7 @@ function App(){
                 </tr>)}
               </tbody>
               <tfoot><tr style={{borderTop:`2px solid ${C.border}`,background:C.panel}}>
-                <td colSpan={5} style={{padding:'10px 12px',fontSize:10,color:C.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'}}>{visible.length} positions</td>
+                <td colSpan={5} style={{padding:'10px 12px',fontSize:10,color:C.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'}}>{visible.length} posiciones</td>
                 <td style={{padding:'10px 12px',textAlign:'right',fontFamily:'monospace',fontWeight:700,fontSize:12}}>
                   {showUSD
                     ? <span style={{color:'#60a5fa'}}>{mask(moneyUSD(visible.reduce((s,a)=>s+a.costo_total_usd,0),0))}</span>
@@ -897,4 +896,94 @@ function App(){
                       <td style={{padding:'10px 11px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{num(t.cantidad).toLocaleString('es-AR',{maximumFractionDigits:4})}</td>
                       <td style={{padding:'10px 11px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{money(t.precio,2)}</td>
                       <td style={{padding:'10px 11px',textAlign:'right',fontFamily:'monospace',fontSize:12,fontWeight:700}}>{money(total)}</td>
-                      <td style={{padding:'10px 11px',fontSize:11,color:C.sub,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.nota||'—
+                      <td style={{padding:'10px 11px',fontSize:11,color:C.sub,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.nota||'—'}</td>
+                      <td style={{padding:'10px 11px'}}><button onClick={()=>deleteTx(t.id)} style={{background:'none',border:`1px solid ${C.border}`,color:C.red,borderRadius:5,padding:'3px 7px',cursor:'pointer',fontSize:11}}>✕</button></td>
+                    </tr>;
+                  })}
+                </tbody>
+                <tfoot><tr style={{borderTop:`2px solid ${C.border}`,background:C.panel}}>
+                  <td colSpan={6} style={{padding:'9px 11px',fontSize:11,color:C.muted}}>
+                    Compras: {money(filteredTxs.filter(t=>t.tipo_op==='Compra').reduce((s,t)=>s+num(t.cantidad)*num(t.precio)+num(t.comision),0))}
+                    {' · '}Ventas: {money(filteredTxs.filter(t=>t.tipo_op==='Venta').reduce((s,t)=>s+num(t.cantidad)*num(t.precio),0))}
+                  </td>
+                  <td colSpan={3}/>
+                </tr></tfoot>
+              </table>
+            </div>
+          </div>}
+      </div>}
+
+      {/* ── VIEW: Agregar ── */}
+      {view==='agregar'&&<div style={{marginTop:16}}>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20}}>
+          <h3 style={{margin:'0 0 18px',fontSize:15,fontWeight:700}}>Registrar operación</h3>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{display:'flex',gap:10}}>
+              <FSel label="Operación" value={txForm.tipo_op} onChange={e=>setTxForm(f=>({...f,tipo_op:e.target.value}))} options={['Compra','Venta']}/>
+              <FInp label="Fecha" type="date" value={txForm.fecha} onChange={e=>setTxForm(f=>({...f,fecha:e.target.value}))}/>
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <FInp label="Ticker" value={txForm.ticker} placeholder="YPF · AAPL · BTC…" onChange={e=>setTxForm(f=>({...f,ticker:e.target.value.toUpperCase()}))} style={{textTransform:'uppercase'}}/>
+              <FSel label="Tipo" value={txForm.tipo_activo} onChange={e=>setTxForm(f=>({...f,tipo_activo:e.target.value}))} options={ASSET_TYPES}/>
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <FInp label="Cantidad" type="number" placeholder="0" value={txForm.cantidad} onChange={e=>setTxForm(f=>({...f,cantidad:e.target.value}))}/>
+              <FInp label="Precio unit." type="number" placeholder="0.00" value={txForm.precio} onChange={e=>setTxForm(f=>({...f,precio:e.target.value}))}/>
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <FInp label="Comisión" type="number" placeholder="0.00" value={txForm.comision} onChange={e=>setTxForm(f=>({...f,comision:e.target.value}))}/>
+              <FSel label="Moneda" value={txForm.moneda} onChange={e=>setTxForm(f=>({...f,moneda:e.target.value}))} options={['ARS','USD','USDT']}/>
+            </div>
+            {txForm.cantidad&&txForm.precio&&<div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px'}}>
+              <div style={{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}}>Total de la operación</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <div style={{fontSize:22,fontWeight:800,fontFamily:'monospace'}}>
+                    {money(num(txForm.cantidad)*num(txForm.precio)+num(txForm.comision),2)}
+                    <span style={{fontSize:12,color:C.muted,marginLeft:6}}>{txForm.moneda}</span>
+                  </div>
+                  {mep > 0 && <div style={{fontSize:13,color:'#4ade80',marginTop:4}}>
+                    ≈ {moneyUSD(toUSD(num(txForm.cantidad)*num(txForm.precio)+num(txForm.comision)),2)} USD (MEP {money(mep)})
+                  </div>}
+                </div>
+                <div style={{fontSize:12,color:C.sub,textAlign:'right'}}>
+                  <div>{num(txForm.cantidad).toLocaleString('es-AR',{maximumFractionDigits:4})} u.</div>
+                  <div>@ {money(num(txForm.precio),2)}</div>
+                  {num(txForm.comision)>0&&<div style={{color:C.muted}}>+ {money(num(txForm.comision),2)} comis.</div>}
+                </div>
+              </div>
+            </div>}
+            {txForm.ticker.trim().length>=1&&(()=>{
+              const match=enriched.find(a=>a.ticker.toUpperCase()===txForm.ticker.toUpperCase());
+              return match?<div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
+                <div style={{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>Posición actual · {match.ticker}</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                  {[['Precio actual',match.sinPrecio?'Sin cotiz.':money(match.precio,2)],
+                    ['Cantidad',match.cantidad.toLocaleString('es-AR',{maximumFractionDigits:4})],
+                    ['Costo prom.',money(match.costo_prom,2)],
+                    ['Resultado',pct(match.ganancia_pct)],
+                    ['Valor USD',match.sinPrecio?'—':moneyUSD(match.valor_actual_usd,0)],
+                    ['Ganancia USD',match.sinPrecio?'—':moneyUSD(match.ganancia_usd,0)]
+                  ].map(([k,v])=>
+                    <div key={k}><div style={{fontSize:10,color:C.muted}}>{k}</div><div style={{fontSize:13,fontFamily:'monospace',color:C.white}}>{v}</div></div>
+                  )}
+                </div>
+              </div>:null;
+            })()}
+            <FInp label="Nota (opcional)" value={txForm.nota} placeholder="Ej: compra en baja" onChange={e=>setTxForm(f=>({...f,nota:e.target.value}))}/>
+            {txError&&<p style={{margin:0,fontSize:12,color:C.red}}>⚠ {txError}</p>}
+            <button onClick={addTx} style={{background:txForm.tipo_op==='Compra'?C.green:C.red,color:'#000',border:'none',borderRadius:8,padding:'14px',fontWeight:800,fontSize:15,cursor:'pointer'}}>
+              Registrar {txForm.tipo_op}
+            </button>
+          </div>
+        </div>
+      </div>}
+
+    </div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
