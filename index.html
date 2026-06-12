@@ -413,9 +413,11 @@ function App(){
     if(!txForm.ticker.trim()) return setTxError('Ingresá el ticker.');
     if(num(txForm.cantidad)<=0) return setTxError('Cantidad inválida.');
     if(num(txForm.precio)<=0) return setTxError('Precio inválido.');
+    const assetMatch=enriched.find(a=>a.ticker.toUpperCase()===txForm.ticker.toUpperCase().trim());
     const newTx={id:Date.now().toString(),...txForm,
       ticker:txForm.ticker.toUpperCase().trim(),
-      cantidad:num(txForm.cantidad),precio:num(txForm.precio),comision:num(txForm.comision)};
+      cantidad:num(txForm.cantidad),precio:num(txForm.precio),comision:num(txForm.comision),
+      costo_prom_venta:txForm.tipo_op==='Venta'&&assetMatch?assetMatch.costo_prom:0};
     const updated=[newTx,...transactions];
     setTransactions(updated); lsSet('portfolio_txs',updated);
     setTxForm(f=>({...f,ticker:'',cantidad:'',precio:'',comision:'',nota:''}));
@@ -656,8 +658,8 @@ function App(){
                     :(()=>{
                       const ganReal=ventas.reduce((s,t)=>{
                         const asset=enriched.find(a=>a.ticker===t.ticker);
-                        const costo=asset?num(t.cantidad)*asset.costo_prom:0;
-                        return s+(num(t.cantidad)*num(t.precio)-costo);
+                        const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
+                        return s+(num(t.cantidad)*(num(t.precio)-costoProm));
                       },0);
                       return <>
                         <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
@@ -673,8 +675,8 @@ function App(){
               const ventasTipo=ventas.filter(t=>t.tipo_activo===tipo);
               const ganReal=ventasTipo.reduce((s,t)=>{
                 const asset=enriched.find(a=>a.ticker===t.ticker);
-                const costo=asset?num(t.cantidad)*asset.costo_prom:0;
-                return s+(num(t.cantidad)*num(t.precio)-costo);
+                const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
+                return s+(num(t.cantidad)*(num(t.precio)-costoProm));
               },0);
               const color=TYPE_COLOR[tipo]||C.muted;
               if(enriched.filter(a=>a.tipo===tipo).length===0&&ventasTipo.length===0) return null;
