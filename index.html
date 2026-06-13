@@ -29,6 +29,7 @@ const C = {
 };
 
 const TYPE_COLOR = { Acciones:C.accent, CEDEAR:C.purple, Cripto:C.orange, Bono:C.green, FCI:C.cyan, Otro:C.muted };
+const DISPLAY_NAME = { Acciones:'Acciones', CEDEAR:'CEDEAR', Cripto:'Stable Coins', Bono:'Bono', FCI:'FCI', Otro:'Otro' };
 const ASSET_TYPES = Object.keys(TYPE_COLOR);
 
 const num = v => parseFloat(String(v??'0').replace(/[,$\s]/g,''))||0;
@@ -48,6 +49,7 @@ const sc = v => v>0?C.green:v<0?C.red:C.sub;
 // ── MEP fetch ──────────────────────────────────────────────────────────────
 async function fetchMEP() {
   try {
+    // Try dolarapi.com (no-cors friendly)
     const res = await fetch('https://dolarapi.com/v1/dolares/bolsa');
     if(res.ok) {
       const d = await res.json();
@@ -55,6 +57,7 @@ async function fetchMEP() {
       if(rate && rate > 0) return { rate: parseFloat(rate), source: 'dolarapi.com', ts: new Date() };
     }
   } catch(e) {}
+  // Fallback: return null so we use manual
   return null;
 }
 
@@ -93,7 +96,7 @@ async function fetchSheet(url, apiKey) {
     ganancia_realizada:['ganancia_realizada','gan_realizada','realizada','ganancia realizada'],
   };
   const pick = (row,key) => { for(const a of ALIASES[key]){ const i=headers.indexOf(a); if(i>=0&&row[i]) return row[i]; } return ''; };
-  const allRows = rows.slice(1).map(row=>({
+  const mapped = rows.slice(1).map(row=>({
     ticker: pick(row,'ticker'),
     tipo: pick(row,'tipo')||'Otro',
     precio: num(pick(row,'precio')),
@@ -102,15 +105,11 @@ async function fetchSheet(url, apiKey) {
     valor_actual: num(pick(row,'valor_actual')),
     moneda: pick(row,'moneda')||'ARS',
     ganancia_realizada: num(pick(row,'ganancia_realizada')),
-  })).filter(r=>r.ticker);
-  // Activos con posición activa
-  const mapped = allRows.filter(r=>r.cantidad>0&&r.precio>0);
-  // Activos vendidos: sin unidades pero con ganancia realizada registrada
-  const sold = allRows.filter(r=>r.cantidad===0&&r.ganancia_realizada>0);
+  })).filter(r=>r.ticker&&r.precio>0&&r.cantidad>0);
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
   }
-  return {assets: mapped, soldRows: sold};
+  return {assets: mapped, soldRows};
 }
 
 // ── Storage ─────────────────────────────────────────────────────────────────
@@ -367,6 +366,9 @@ function App(){
     setLoading(false);
   };
 
+  // Cartera viene SOLO de la hoja de cálculo.
+  // Los movimientos registrados en la app son RECORDATORIOS — no modifican la cartera.
+  // Flujo: registrás en app → lo cargás en la hoja → sincronizás → ves los cambios → borrás el movimiento.
   const enriched = useMemo(()=>{
     return assets.filter(a => a.cantidad > 0).map(a=>{
       const cantidad = a.cantidad;
@@ -517,7 +519,7 @@ function App(){
           <div style={{display:'flex',flexDirection:'column',gap:4,minWidth:0}}>
             {pieSlices.map(s=><div key={s.label} style={{display:'flex',alignItems:'center',gap:5}}>
               <div style={{width:7,height:7,borderRadius:2,background:s.color,flexShrink:0}}/>
-              <span style={{fontSize:10,color:C.sub,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.label}</span>
+              <span style={{fontSize:10,color:C.sub,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{DISPLAY_NAME[s.label]||s.label}</span>
               <span style={{fontSize:10,fontWeight:700,color:s.color,marginLeft:'auto',paddingLeft:4}}>{(s.pct*100).toFixed(0)}%</span>
             </div>)}
           </div>
@@ -563,6 +565,7 @@ function App(){
         }
       </div>
 
+
       {/* ── PANEL: Desglose por tipo + Ganancias ── */}
       {(()=>{
         const tiposData=['Acciones','CEDEAR','Cripto'].map(tipo=>{
@@ -585,7 +588,7 @@ function App(){
               return <div key={tipo} style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}>
                 <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:7}}>
                   <div style={{width:7,height:7,borderRadius:2,background:color}}/>
-                  <span style={{fontWeight:700,fontSize:13}}>{tipo}</span>
+                  <span style={{fontWeight:700,fontSize:13}}>{DISPLAY_NAME[tipo]||tipo}</span>
                   <span style={{fontSize:10,color:C.muted,marginLeft:'auto'}}>{rows.length} pos.</span>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
@@ -618,6 +621,37 @@ function App(){
                 </div><div/><div/>
               </div>
             </div>}
+            {/* Subtotal Acciones + CEDEAR */}
+            {(()=>{
+              const renta=['Acciones','CEDEAR'];
+              const rentaRows=enriched.filter(a=>renta.includes(a.tipo));
+              if(rentaRows.length===0) return null;
+              const val=rentaRows.reduce((s,a)=>s+a.valor_actual,0);
+              const cost=rentaRows.reduce((s,a)=>s+a.costo_total,0);
+              const gan=val-cost;
+              const ganPct=cost>0?(gan/cost)*100:0;
+              return <div style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`,background:'#1a1f2e'}}>
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:7}}>
+                  <div style={{width:7,height:7,borderRadius:2,background:'#818cf8'}}/>
+                  <span style={{fontWeight:700,fontSize:13,color:'#a5b4fc'}}>Renta variable (Acc. + CEDEAR)</span>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+                  <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>Valor</div>
+                    <div style={{fontSize:12,fontWeight:700,fontFamily:'monospace'}}>{mask(money(val))}</div>
+                    {showUSD&&<div style={{fontSize:10,color:'#4ade80',fontFamily:'monospace'}}>{mask(moneyUSD(toUSD(val),0))}</div>}
+                  </div>
+                  <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>Invertido</div>
+                    <div style={{fontSize:12,fontWeight:700,fontFamily:'monospace',color:C.sub}}>{mask(money(cost))}</div>
+                    {showUSD&&<div style={{fontSize:10,color:'#60a5fa',fontFamily:'monospace'}}>{mask(moneyUSD(toUSD(cost),0))}</div>}
+                  </div>
+                  <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>Ganancia</div>
+                    <div style={{fontSize:12,fontWeight:700,fontFamily:'monospace',color:sc(gan)}}>{mask(money(gan))}</div>
+                    {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(gan)}}>{mask(moneyUSD(toUSD(gan),0))}</div>}
+                    <div style={{fontSize:10,color:sc(ganPct)}}>{pct(ganPct)}</div>
+                  </div>
+                </div>
+              </div>;
+            })()}
             <div style={{padding:'11px 16px',background:C.panel}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
                 <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>Total</div>
@@ -654,26 +688,23 @@ function App(){
                   <div style={{fontSize:10,color:sc(totalPct)}}>{pct(totalPct)}</div>
                 </div>
                 <div>
-                  {(()=>{
-                    const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
-                    const ganRealTxs=ventas.reduce((s,t)=>{
-                      const asset=enriched.find(a=>a.ticker===t.ticker);
-                      const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
-                      return s+(num(t.cantidad)*(num(t.precio)-costoProm));
-                    },0);
-                    const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
-                    const label=soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:'';
-                    return ganReal>0
-                      ?<>
-                        <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{label}</div>
+                  <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:''}</div>
+                  {ventas.length===0
+                    ?<div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
+                    :(()=>{
+                      const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+                      const ganRealTxs=ventas.reduce((s,t)=>{
+                        const asset=enriched.find(a=>a.ticker===t.ticker);
+                        const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
+                        return s+(num(t.cantidad)*(num(t.precio)-costoProm));
+                      },0);
+                      const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
+                      return <>
                         <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
                         {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
-                      </>
-                      :<>
-                        <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada</div>
-                        <div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
                       </>;
-                  })()}
+                    })()
+                  }
                 </div>
               </div>
             </div>
@@ -688,12 +719,11 @@ function App(){
               },0);
               const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
               const color=TYPE_COLOR[tipo]||C.muted;
-              const tieneActivosOVentas=enriched.filter(a=>a.tipo===tipo).length>0||soldAssets.filter(a=>a.tipo===tipo).length>0||ventasTipo.length>0;
-              if(!tieneActivosOVentas) return null;
+              if(enriched.filter(a=>a.tipo===tipo).length===0&&ventasTipo.length===0) return null;
               return <div key={tipo} style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'80px 1fr 1fr',gap:8,alignItems:'start'}}>
                 <div style={{display:'flex',alignItems:'center',gap:5,paddingTop:2}}>
                   <div style={{width:7,height:7,borderRadius:2,background:color,flexShrink:0}}/>
-                  <span style={{fontSize:12,fontWeight:700}}>{tipo}</span>
+                  <span style={{fontSize:12,fontWeight:700}}>{DISPLAY_NAME[tipo]||tipo}</span>
                 </div>
                 <div>
                   <div style={{fontSize:9,color:'#60a5fa',marginBottom:2}}>No realizada</div>
@@ -702,12 +732,12 @@ function App(){
                 </div>
                 <div>
                   <div style={{fontSize:9,color:'#4ade80',marginBottom:2}}>Realizada</div>
-                  {ganReal>0
-                    ?<>
+                  {ventasTipo.length===0
+                    ?<div style={{fontSize:10,color:C.muted}}>sin ventas</div>
+                    :<>
                       <div style={{fontSize:12,fontFamily:'monospace',fontWeight:700,color:sc(ganReal)}}>{mask(money(ganReal))}</div>
                       {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
                     </>
-                    :<div style={{fontSize:10,color:C.muted}}>sin ventas</div>
                   }
                 </div>
               </div>;
@@ -731,6 +761,7 @@ function App(){
       {/* ── VIEW: Cartera ── */}
       {view==='cartera' && <div style={{marginTop:12}}>
 
+        {/* MEP widget + currency toggle */}
         <MepWidget
           mep={mep} setMep={setMep}
           mepAuto={mepAuto} mepLoading={mepLoading} mepSource={mepSource}
