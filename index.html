@@ -96,7 +96,7 @@ async function fetchSheet(url, apiKey) {
     ganancia_realizada:['ganancia_realizada','gan_realizada','realizada','ganancia realizada'],
   };
   const pick = (row,key) => { for(const a of ALIASES[key]){ const i=headers.indexOf(a); if(i>=0&&row[i]) return row[i]; } return ''; };
-  const mapped = rows.slice(1).map(row=>({
+  const allRows = rows.slice(1).map(row=>({
     ticker: pick(row,'ticker'),
     tipo: pick(row,'tipo')||'Otro',
     precio: num(pick(row,'precio')),
@@ -105,11 +105,13 @@ async function fetchSheet(url, apiKey) {
     valor_actual: num(pick(row,'valor_actual')),
     moneda: pick(row,'moneda')||'ARS',
     ganancia_realizada: num(pick(row,'ganancia_realizada')),
-  })).filter(r=>r.ticker&&r.precio>0&&r.cantidad>0);
+  })).filter(r=>r.ticker);
+  const mapped = allRows.filter(r=>r.precio>0&&r.cantidad>0);
+  const sold = allRows.filter(r=>r.cantidad===0&&r.ganancia_realizada!==0);
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
   }
-  return {assets: mapped, soldRows};
+  return {assets: mapped, soldRows: sold};
 }
 
 // ── Storage ─────────────────────────────────────────────────────────────────
