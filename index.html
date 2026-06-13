@@ -390,11 +390,14 @@ function App(){
 
   const totalValor=enriched.reduce((s,a)=>s+a.valor_actual,0);
   const totalCosto=enriched.reduce((s,a)=>s+a.costo_total,0);
-  const totalGanancia=totalValor-totalCosto;
-  const totalPct=totalCosto>0?(totalGanancia/totalCosto)*100:0;
+  // Ganancia no realizada excluye Stable Coins (Cripto) — solo mide renta variable real
+  const rentaRows=enriched.filter(a=>a.tipo!=='Cripto');
+  const totalGanancia=rentaRows.reduce((s,a)=>s+a.ganancia,0);
+  const totalGananciaCosto=rentaRows.reduce((s,a)=>s+a.costo_total,0);
+  const totalPct=totalGananciaCosto>0?(totalGanancia/totalGananciaCosto)*100:0;
   const totalValorUSD=toUSD(totalValor);
   const totalCostoUSD=toUSD(totalCosto);
-  const totalGananciaUSD=totalValorUSD-totalCostoUSD;
+  const totalGananciaUSD=toUSD(totalGanancia);
 
   const byTipo=useMemo(()=>ASSET_TYPES.reduce((acc,t)=>{acc[t]=enriched.filter(a=>a.tipo===t).reduce((s,a)=>s+a.valor_actual,0);return acc;},{}), [enriched]);
   const pieSlices=useMemo(()=>ASSET_TYPES.filter(t=>byTipo[t]>0).map(t=>({label:t,color:TYPE_COLOR[t],pct:byTipo[t]/totalValor,val:byTipo[t]})),[byTipo,totalValor]);
@@ -602,10 +605,13 @@ function App(){
                     <div style={{fontSize:12,fontWeight:700,fontFamily:'monospace',color:C.sub}}>{mask(money(cost))}</div>
                     {showUSD&&<div style={{fontSize:10,color:'#60a5fa',fontFamily:'monospace'}}>{mask(moneyUSD(toUSD(cost),0))}</div>}
                   </div>
-                  <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>Ganancia</div>
-                    <div style={{fontSize:12,fontWeight:700,fontFamily:'monospace',color:sc(gan)}}>{mask(money(gan))}</div>
-                    {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(gan)}}>{mask(moneyUSD(toUSD(gan),0))}</div>}
-                    <div style={{fontSize:10,color:sc(ganPct)}}>{pct(ganPct)}</div>
+                  <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>{tipo==='Cripto'?'Var. ARS (≠ ganancia)':'Ganancia'}</div>
+                    <div style={{fontSize:12,fontWeight:700,fontFamily:'monospace',color:tipo==='Cripto'?C.muted:sc(gan)}}>{mask(money(gan))}</div>
+                    {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:tipo==='Cripto'?C.muted:sc(gan)}}>{mask(moneyUSD(toUSD(gan),0))}</div>}
+                    {tipo==='Cripto'
+                      ?<div style={{fontSize:9,color:C.muted}}>no cuenta en total</div>
+                      :<div style={{fontSize:10,color:sc(ganPct)}}>{pct(ganPct)}</div>
+                    }
                   </div>
                 </div>
               </div>;
@@ -664,7 +670,7 @@ function App(){
                   <div style={{fontSize:13,fontWeight:800,fontFamily:'monospace',color:C.sub}}>{mask(money(totalCosto))}</div>
                   {showUSD&&<div style={{fontSize:11,color:'#60a5fa',fontFamily:'monospace',fontWeight:700}}>{mask(moneyUSD(totalCostoUSD,0))}</div>}
                 </div>
-                <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>Gan. no realiz.</div>
+                <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}}>Gan. no realiz. (sin SC)</div>
                   <div style={{fontSize:13,fontWeight:800,fontFamily:'monospace',color:sc(totalGanancia)}}>{mask(money(totalGanancia))}</div>
                   {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',fontWeight:700,color:sc(totalGanancia)}}>{mask(moneyUSD(totalGananciaUSD,0))}</div>}
                   <div style={{fontSize:10,color:sc(totalPct)}}>{pct(totalPct)}</div>
@@ -684,7 +690,7 @@ function App(){
               <div style={{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>Total cartera</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                 <div>
-                  <div style={{fontSize:9,color:'#60a5fa',marginBottom:3}}>No realizada</div>
+                  <div style={{fontSize:9,color:'#60a5fa',marginBottom:3}}>No realizada (sin Stable Coins)</div>
                   <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(totalGanancia)}}>{mask(money(totalGanancia))}</div>
                   {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',color:sc(totalGanancia)}}>{mask(moneyUSD(totalGananciaUSD,0))}</div>}
                   <div style={{fontSize:10,color:sc(totalPct)}}>{pct(totalPct)}</div>
@@ -722,8 +728,13 @@ function App(){
                 </div>
                 <div>
                   <div style={{fontSize:9,color:'#60a5fa',marginBottom:2}}>No realizada</div>
-                  <div style={{fontSize:12,fontFamily:'monospace',fontWeight:700,color:sc(noReal)}}>{mask(money(noReal))}</div>
-                  {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(noReal)}}>{mask(moneyUSD(toUSD(noReal),0))}</div>}
+                  {isStable
+                    ?<div style={{fontSize:10,color:C.muted}}>excluida del total</div>
+                    :<>
+                      <div style={{fontSize:12,fontFamily:'monospace',fontWeight:700,color:sc(noReal)}}>{mask(money(noReal))}</div>
+                      {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(noReal)}}>{mask(moneyUSD(toUSD(noReal),0))}</div>}
+                    </>
+                  }
                 </div>
                 <div>
                   <div style={{fontSize:9,color:'#4ade80',marginBottom:2}}>Realizada</div>
