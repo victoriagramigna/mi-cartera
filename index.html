@@ -690,18 +690,20 @@ function App(){
                   <div style={{fontSize:10,color:sc(totalPct)}}>{pct(totalPct)}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:''}</div>
-                  {!hasRealizada
-                    ?<div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
-                    :(()=>{
-                      const ganReal=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
-                      const hasRealizada=ganReal!==0||soldAssets.length>0;
-                      return <>
-                        <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
-                        {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
-                      </>;
-                    })()
-                  }
+                  {(()=>{
+                    const ganReal=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+                    const hasRealizada=ganReal!==0||soldAssets.length>0;
+                    return <>
+                      <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:''}</div>
+                      {!hasRealizada
+                        ?<div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
+                        :<>
+                          <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
+                          {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
+                        </>
+                      }
+                    </>;
+                  })()}
                 </div>
               </div>
             </div>
