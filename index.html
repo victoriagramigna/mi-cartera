@@ -897,24 +897,53 @@ function App(){
           {visible.length===0&&<p style={{color:C.muted,padding:32,textAlign:'center',margin:0}}>Sin resultados.</p>}
         </div>
 
-        {/* Mejores / Peores */}
-        {enriched.length>=2&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:12}}>
-          {[{title:'Mejores',rows:[...enriched].filter(a=>!a.sinPrecio&&a.tipo!=='Cripto').sort((a,b)=>b.ganancia_pct-a.ganancia_pct).slice(0,3)},
-            {title:'Peores',rows:[...enriched].filter(a=>!a.sinPrecio&&a.tipo!=='Cripto').sort((a,b)=>a.ganancia_pct-b.ganancia_pct).slice(0,3)}].map(({title,rows})=>
-            <div key={title} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
-              <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:10}}>{title}</div>
-              {rows.map(a=><div key={a.ticker} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
-                <div><div style={{fontWeight:700,fontSize:13}}>{a.ticker}</div><div style={{fontSize:10,color:C.muted}}>{a.tipo}</div></div>
-                <div style={{textAlign:'right'}}>
-                  <div style={{fontFamily:'monospace',fontWeight:700,fontSize:12,color:sc(a.ganancia_pct)}}>{pct(a.ganancia_pct)}</div>
-                  <div style={{fontSize:11,color:C.sub}}>
-                    {showUSD ? mask(moneyUSD(a.ganancia_usd,0)) : mask(money(a.ganancia))}
-                  </div>
-                </div>
-              </div>)}
+        {/* Ranking completo */}
+        {(()=>{
+          const sinSC=[...enriched].filter(a=>!a.sinPrecio&&a.tipo!=='Cripto');
+          const positivos=sinSC.filter(a=>a.ganancia_pct>0).sort((a,b)=>b.ganancia_pct-a.ganancia_pct);
+          const negativos=sinSC.filter(a=>a.ganancia_pct<0).sort((a,b)=>a.ganancia_pct-b.ganancia_pct);
+          const neutros=sinSC.filter(a=>a.ganancia_pct===0);
+          const RowItem=({a})=><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 0',borderBottom:`1px solid ${C.border}`}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:13}}>{a.ticker}</div>
+              <div style={{fontSize:10,color:C.muted}}>{DISPLAY_NAME[a.tipo]||a.tipo}</div>
             </div>
-          )}
-        </div>}
+            <div style={{textAlign:'right'}}>
+              <div style={{fontFamily:'monospace',fontWeight:700,fontSize:12,color:sc(a.ganancia_pct)}}>{pct(a.ganancia_pct)}</div>
+              <div style={{fontSize:11,color:C.sub}}>{showUSD?mask(moneyUSD(a.ganancia_usd,0)):mask(money(a.ganancia))}</div>
+            </div>
+          </div>;
+          return <div style={{marginTop:12}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div style={{background:C.card,border:`1px solid #22c55e33`,borderRadius:10,padding:'14px 16px'}}>
+                <div style={{fontSize:10,color:C.green,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:10}}>
+                  ▲ Positivos ({positivos.length})
+                </div>
+                {positivos.length===0
+                  ?<div style={{fontSize:12,color:C.muted}}>Sin posiciones positivas</div>
+                  :positivos.map(a=><RowItem key={a.ticker} a={a}/>)
+                }
+              </div>
+              <div style={{background:C.card,border:`1px solid #ef444433`,borderRadius:10,padding:'14px 16px'}}>
+                <div style={{fontSize:10,color:C.red,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:10}}>
+                  ▼ Negativos ({negativos.length})
+                </div>
+                {negativos.length===0
+                  ?<div style={{fontSize:12,color:C.muted}}>Sin posiciones negativas</div>
+                  :negativos.map(a=><RowItem key={a.ticker} a={a}/>)
+                }
+              </div>
+            </div>
+            {neutros.length>0&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px',marginTop:10}}>
+              <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:10}}>
+                ● Sin variación ({neutros.length})
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                {neutros.map(a=><RowItem key={a.ticker} a={a}/>)}
+              </div>
+            </div>}
+          </div>;
+        })()}
       </div>}
 
       {/* ── VIEW: Movimientos ── */}
