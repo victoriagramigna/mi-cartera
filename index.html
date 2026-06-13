@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Mi Cartera</title>
+<title>MERVALETA</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -95,7 +95,7 @@ async function fetchSheet(url, apiKey) {
     moneda:['moneda','currency','divisa'],
     ganancia_realizada:['ganancia_realizada','gan_realizada','realizada','ganancia realizada'],
   };
-  const pick = (row,key) => { for(const a of ALIASES[key]){ const i=headers.indexOf(a); if(i>=0&&row[i]) return row[i]; } return ''; };
+  const pick = (row,key) => { for(const a of ALIASES[key]){ const i=headers.indexOf(a); if(i>=0&&row[i]!=null&&row[i]!=='') return row[i]; } return ''; };
   const allRows = rows.slice(1).map(row=>({
     ticker: pick(row,'ticker'),
     tipo: pick(row,'tipo')||'Otro',
@@ -105,9 +105,9 @@ async function fetchSheet(url, apiKey) {
     valor_actual: num(pick(row,'valor_actual')),
     moneda: pick(row,'moneda')||'ARS',
     ganancia_realizada: num(pick(row,'ganancia_realizada')),
-  })).filter(r=>r.ticker);
+  })).filter(r=>r.ticker&&r.ticker.trim()!=='');
   const mapped = allRows.filter(r=>r.precio>0&&r.cantidad>0);
-  const sold = allRows.filter(r=>r.cantidad===0&&r.ganancia_realizada!==0);
+  const sold = allRows.filter(r=>r.cantidad===0&&r.ganancia_realizada>0);
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
   }
@@ -170,7 +170,7 @@ const Badge = ({tipo}) => <span style={{
   border:`1px solid ${(TYPE_COLOR[tipo]||C.muted)}33`,
   borderRadius:4,padding:'2px 7px',fontSize:10,fontWeight:700,
   letterSpacing:'0.06em',textTransform:'uppercase',whiteSpace:'nowrap',
-}}>{tipo}</span>;
+}}>{DISPLAY_NAME[tipo]||tipo}</span>;
 
 const Th = ({children,right,onClick,sorted}) => <th onClick={onClick} style={{
   padding:'10px 12px',textAlign:right?'right':'left',fontSize:10,
@@ -449,7 +449,7 @@ function App(){
     <div style={{background:C.panel,borderBottom:`1px solid ${C.border}`,padding:'16px 16px 12px'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
         <div>
-          <h1 style={{margin:0,fontSize:18,fontWeight:800,letterSpacing:'-0.03em'}}>Mi Cartera</h1>
+          <h1 style={{margin:0,fontSize:18,fontWeight:800,letterSpacing:'-0.03em'}}>MERVALETA</h1>
           <p style={{margin:'2px 0 0',fontSize:11,color:C.muted}}>
             {isDemo?'Datos demo — conectá tu hoja':`Hoja conectada · ${lastSync?.toLocaleTimeString('es-AR')}`}
           </p>
@@ -691,16 +691,11 @@ function App(){
                 </div>
                 <div>
                   <div style={{fontSize:9,color:'#4ade80',marginBottom:3}}>Realizada{soldAssets.length>0?` (${soldAssets.length} pos. vendidas)`:ventas.length>0?` (${ventas.length} ventas)`:''}</div>
-                  {ventas.length===0
+                  {!hasRealizada
                     ?<div style={{fontSize:12,color:C.muted}}>Sin ventas registradas</div>
                     :(()=>{
-                      const ganRealSheet=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
-                      const ganRealTxs=ventas.reduce((s,t)=>{
-                        const asset=enriched.find(a=>a.ticker===t.ticker);
-                        const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
-                        return s+(num(t.cantidad)*(num(t.precio)-costoProm));
-                      },0);
-                      const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
+                      const ganReal=enriched.reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+                      const hasRealizada=ganReal!==0||soldAssets.length>0;
                       return <>
                         <div style={{fontSize:15,fontWeight:800,fontFamily:'monospace',color:sc(ganReal)}}>{mask(money(ganReal))}</div>
                         {showUSD&&<div style={{fontSize:11,fontFamily:'monospace',color:sc(ganReal)}}>{mask(moneyUSD(toUSD(ganReal),0))}</div>}
@@ -713,13 +708,9 @@ function App(){
             {['Acciones','CEDEAR','Cripto'].map(tipo=>{
               const noReal=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+a.ganancia,0);
               const ventasTipo=ventas.filter(t=>t.tipo_activo===tipo);
-              const ganRealSheet=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldAssets.filter(a=>a.tipo===tipo).reduce((s,a)=>s+(a.ganancia_realizada||0),0);
-              const ganRealTxs=ventasTipo.reduce((s,t)=>{
-                const asset=enriched.find(a=>a.ticker===t.ticker);
-                const costoProm=t.costo_prom_venta>0?t.costo_prom_venta:(asset?asset.costo_prom:0);
-                return s+(num(t.cantidad)*(num(t.precio)-costoProm));
-              },0);
-              const ganReal=ganRealSheet>0?ganRealSheet:ganRealTxs;
+              const soldTipo=soldAssets.filter(a=>a.tipo===tipo);
+              const ganReal=enriched.filter(a=>a.tipo===tipo).reduce((s,a)=>s+(a.ganancia_realizada||0),0)+soldTipo.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+              const hasTipoRealizada=ganReal!==0||soldTipo.length>0;
               const color=TYPE_COLOR[tipo]||C.muted;
               if(enriched.filter(a=>a.tipo===tipo).length===0&&ventasTipo.length===0) return null;
               return <div key={tipo} style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'80px 1fr 1fr',gap:8,alignItems:'start'}}>
@@ -734,7 +725,7 @@ function App(){
                 </div>
                 <div>
                   <div style={{fontSize:9,color:'#4ade80',marginBottom:2}}>Realizada</div>
-                  {ventasTipo.length===0
+                  {!hasTipoRealizada
                     ?<div style={{fontSize:10,color:C.muted}}>sin ventas</div>
                     :<>
                       <div style={{fontSize:12,fontFamily:'monospace',fontWeight:700,color:sc(ganReal)}}>{mask(money(ganReal))}</div>
@@ -789,7 +780,7 @@ function App(){
                 border:`1px solid ${filterTipo===t?(TYPE_COLOR[t]||C.accent):C.border}`,
                 color:filterTipo===t?(TYPE_COLOR[t]||C.white):C.muted,
                 borderRadius:6,padding:'5px 10px',cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit',
-              }}>{t}</button>
+              }}>{DISPLAY_NAME[t]||t}</button>
             )}
           </div>
         </div>
