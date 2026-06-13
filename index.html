@@ -887,8 +887,8 @@ function App(){
 
         {/* Mejores / Peores */}
         {enriched.length>=2&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:12}}>
-          {[{title:'Mejores',rows:[...enriched].filter(a=>!a.sinPrecio).sort((a,b)=>b.ganancia_pct-a.ganancia_pct).slice(0,3)},
-            {title:'Peores',rows:[...enriched].filter(a=>!a.sinPrecio).sort((a,b)=>a.ganancia_pct-b.ganancia_pct).slice(0,3)}].map(({title,rows})=>
+          {[{title:'Mejores',rows:[...enriched].filter(a=>!a.sinPrecio&&a.tipo!=='Cripto').sort((a,b)=>b.ganancia_pct-a.ganancia_pct).slice(0,3)},
+            {title:'Peores',rows:[...enriched].filter(a=>!a.sinPrecio&&a.tipo!=='Cripto').sort((a,b)=>a.ganancia_pct-b.ganancia_pct).slice(0,3)}].map(({title,rows})=>
             <div key={title} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
               <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:10}}>{title}</div>
               {rows.map(a=><div key={a.ticker} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
@@ -1033,4 +1033,4 @@ function App(){
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
-  </html>
+</html>
