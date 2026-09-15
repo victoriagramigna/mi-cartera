@@ -1106,6 +1106,7 @@ function App(){
                 {rowsData.map(r=>{
                   const isOpen=expandedTicker===r.tk;
                   const color=TYPE_COLOR[r.tipo]||C.muted;
+                  const isStable=r.tipo==='Cripto';
                   return <div key={r.tk} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
                     <div onClick={()=>setExpandedTicker(isOpen?null:r.tk)} style={{padding:'12px 14px',display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
                       <div style={{width:7,height:7,borderRadius:2,background:color,flexShrink:0}}/>
@@ -1114,27 +1115,30 @@ function App(){
                         <div style={{fontSize:10,color:C.muted}}>{r.estado} · {r.txs.length} mov. registrado{r.txs.length===1?'':'s'}</div>
                       </div>
                       <div style={{textAlign:'right'}}>
-                        <div style={{fontFamily:'monospace',fontWeight:700,fontSize:13,color:sc(r.ganTotal)}}>{mask(showUSD?moneyUSD(toUSD(r.ganTotal),0):money(r.ganTotal))}</div>
-                        <div style={{fontSize:10,color:C.muted}}>ganancia total a hoy</div>
+                        <div style={{fontFamily:'monospace',fontWeight:700,fontSize:13,color:isStable?C.muted:sc(r.ganTotal)}}>{mask(showUSD?moneyUSD(toUSD(r.ganTotal),0):money(r.ganTotal))}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{isStable?'variación ARS (no es ganancia)':'ganancia total a hoy'}</div>
                       </div>
                       <span style={{color:C.muted,fontSize:12,marginLeft:4}}>{isOpen?'▲':'▼'}</span>
                     </div>
                     {isOpen&&<div style={{padding:'0 14px 14px',borderTop:`1px solid ${C.border}`}}>
+                      {isStable&&<div style={{background:'#1a1f2e',border:`1px solid ${C.border}`,borderRadius:8,padding:'9px 12px',marginTop:12,fontSize:11,color:C.sub,lineHeight:1.5}}>
+                        💡 {r.tk} es un dólar tokenizado (stablecoin). Su precio en ARS sube o baja con el dólar MEP — no es una ganancia o pérdida real en dólares, es la devaluación del peso. Por eso no entra en los totales de ganancia de la app.
+                      </div>}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginTop:12,marginBottom:14}}>
                         <div>
-                          <div style={{fontSize:9,color:'#60a5fa',marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>No realizada</div>
-                          <div style={{fontSize:13,fontWeight:700,fontFamily:'monospace',color:sc(r.ganNoRealizada)}}>{mask(money(r.ganNoRealizada))}</div>
-                          {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganNoRealizada)}}>{mask(moneyUSD(toUSD(r.ganNoRealizada),0))}</div>}
+                          <div style={{fontSize:9,color:'#60a5fa',marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>{isStable?'Var. ARS':'No realizada'}</div>
+                          <div style={{fontSize:13,fontWeight:700,fontFamily:'monospace',color:isStable?C.muted:sc(r.ganNoRealizada)}}>{mask(money(r.ganNoRealizada))}</div>
+                          {showUSD&&!isStable&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganNoRealizada)}}>{mask(moneyUSD(toUSD(r.ganNoRealizada),0))}</div>}
                         </div>
                         <div>
                           <div style={{fontSize:9,color:'#4ade80',marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>Realizada</div>
-                          <div style={{fontSize:13,fontWeight:700,fontFamily:'monospace',color:sc(r.ganRealizada)}}>{mask(money(r.ganRealizada))}</div>
-                          {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganRealizada)}}>{mask(moneyUSD(toUSD(r.ganRealizada),0))}</div>}
+                          <div style={{fontSize:13,fontWeight:700,fontFamily:'monospace',color:isStable?C.muted:sc(r.ganRealizada)}}>{mask(money(r.ganRealizada))}</div>
+                          {showUSD&&!isStable&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganRealizada)}}>{mask(moneyUSD(toUSD(r.ganRealizada),0))}</div>}
                         </div>
                         <div>
-                          <div style={{fontSize:9,color:C.muted,marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>Total a hoy</div>
-                          <div style={{fontSize:13,fontWeight:800,fontFamily:'monospace',color:sc(r.ganTotal)}}>{mask(money(r.ganTotal))}</div>
-                          {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganTotal)}}>{mask(moneyUSD(toUSD(r.ganTotal),0))}</div>}
+                          <div style={{fontSize:9,color:C.muted,marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>{isStable?'Total var.':'Total a hoy'}</div>
+                          <div style={{fontSize:13,fontWeight:800,fontFamily:'monospace',color:isStable?C.muted:sc(r.ganTotal)}}>{mask(money(r.ganTotal))}</div>
+                          {showUSD&&!isStable&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganTotal)}}>{mask(moneyUSD(toUSD(r.ganTotal),0))}</div>}
                         </div>
                       </div>
                       {r.held&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',marginBottom:12,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
