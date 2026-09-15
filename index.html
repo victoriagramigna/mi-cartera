@@ -324,6 +324,10 @@ function App(){
   const [cashARS, setCashARS] = useState(lsGet('cash_ars') || '');
   const [showCashInput, setShowCashInput] = useState(false);
 
+  // Historial por ticker
+  const [expandedTicker, setExpandedTicker] = useState(null);
+  const [histSearch, setHistSearch] = useState('');
+
   const mask = (val) => hideAmounts ? '••••••' : val;
   const maskUSD = (val) => hideAmounts ? '••••' : val;
 
@@ -1066,6 +1070,110 @@ function App(){
           </div>
         </div>
       </div>}
+
+      {/* ── Histórico por ticker (fijo, separado de la cartera actual) ── */}
+      <div style={{marginTop:28}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+          <h2 style={{margin:0,fontSize:14,fontWeight:800,letterSpacing:'-0.02em'}}>Histórico por ticker</h2>
+          <span style={{fontSize:10,color:C.muted}}>ganancia acumulada a lo largo del tiempo</span>
+        </div>
+        {(()=>{
+          const tickerSet=new Set([...enriched.map(a=>a.ticker),...soldAssets.map(a=>a.ticker),...transactions.map(t=>t.ticker)]);
+          let tickers=[...tickerSet].sort();
+          if(histSearch.trim()) tickers=tickers.filter(t=>t.toUpperCase().includes(histSearch.toUpperCase()));
+          const rowsData=tickers.map(tk=>{
+            const held=enriched.find(a=>a.ticker===tk);
+            const soldRows=soldAssets.filter(a=>a.ticker===tk);
+            const txs=transactions.filter(t=>t.ticker===tk).slice().sort((a,b)=>a.fecha.localeCompare(b.fecha));
+            const tipo=held?.tipo||soldRows[0]?.tipo||txs[0]?.tipo_activo||'Otro';
+            const ganNoRealizada=held?held.ganancia:0;
+            const ganRealizada=(held?.ganancia_realizada||0)+soldRows.reduce((s,a)=>s+(a.ganancia_realizada||0),0);
+            const ganTotal=ganNoRealizada+ganRealizada;
+            const estado=held?'En cartera':(soldRows.length>0?'Vendido':'Sin posición actual');
+            return {tk,held,soldRows,txs,tipo,ganNoRealizada,ganRealizada,ganTotal,estado};
+          }).sort((a,b)=>b.ganTotal-a.ganTotal);
+
+          return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+            <input value={histSearch} onChange={e=>setHistSearch(e.target.value)} placeholder="Buscar ticker…"
+              style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,
+                padding:'8px 12px',color:C.white,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%',
+                boxSizing:'border-box',marginBottom:12}}/>
+            {rowsData.length===0
+              ?<div style={{padding:'24px 8px',textAlign:'center'}}>
+                <p style={{color:C.muted,margin:0,fontSize:13,lineHeight:1.6}}>Todavía no hay tickers para mostrar acá.<br/>Aparecen apenas tengas una posición en la hoja (actual o vendida) o un movimiento registrado.</p>
+              </div>
+              :<div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {rowsData.map(r=>{
+                  const isOpen=expandedTicker===r.tk;
+                  const color=TYPE_COLOR[r.tipo]||C.muted;
+                  return <div key={r.tk} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                    <div onClick={()=>setExpandedTicker(isOpen?null:r.tk)} style={{padding:'12px 14px',display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+                      <div style={{width:7,height:7,borderRadius:2,background:color,flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:13}}>{r.tk}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{r.estado} · {r.txs.length} mov. registrado{r.txs.length===1?'':'s'}</div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontFamily:'monospace',fontWeight:700,fontSize:13,color:sc(r.ganTotal)}}>{mask(showUSD?moneyUSD(toUSD(r.ganTotal),0):money(r.ganTotal))}</div>
+                        <div style={{fontSize:10,color:C.muted}}>ganancia total a hoy</div>
+                      </div>
+                      <span style={{color:C.muted,fontSize:12,marginLeft:4}}>{isOpen?'▲':'▼'}</span>
+                    </div>
+                    {isOpen&&<div style={{padding:'0 14px 14px',borderTop:`1px solid ${C.border}`}}>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginTop:12,marginBottom:14}}>
+                        <div>
+                          <div style={{fontSize:9,color:'#60a5fa',marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>No realizada</div>
+                          <div style={{fontSize:13,fontWeight:700,fontFamily:'monospace',color:sc(r.ganNoRealizada)}}>{mask(money(r.ganNoRealizada))}</div>
+                          {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganNoRealizada)}}>{mask(moneyUSD(toUSD(r.ganNoRealizada),0))}</div>}
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,color:'#4ade80',marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>Realizada</div>
+                          <div style={{fontSize:13,fontWeight:700,fontFamily:'monospace',color:sc(r.ganRealizada)}}>{mask(money(r.ganRealizada))}</div>
+                          {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganRealizada)}}>{mask(moneyUSD(toUSD(r.ganRealizada),0))}</div>}
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,color:C.muted,marginBottom:2,textTransform:'uppercase',letterSpacing:'0.05em'}}>Total a hoy</div>
+                          <div style={{fontSize:13,fontWeight:800,fontFamily:'monospace',color:sc(r.ganTotal)}}>{mask(money(r.ganTotal))}</div>
+                          {showUSD&&<div style={{fontSize:10,fontFamily:'monospace',color:sc(r.ganTotal)}}>{mask(moneyUSD(toUSD(r.ganTotal),0))}</div>}
+                        </div>
+                      </div>
+                      {r.held&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',marginBottom:12,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                        <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em'}}>Cantidad</div><div style={{fontSize:12,fontFamily:'monospace',marginTop:2}}>{r.held.cantidad.toLocaleString('es-AR',{maximumFractionDigits:4})}</div></div>
+                        <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em'}}>Costo prom.</div><div style={{fontSize:12,fontFamily:'monospace',marginTop:2}}>{money(r.held.costo_prom,2)}</div></div>
+                        <div><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.05em'}}>Valor actual</div><div style={{fontSize:12,fontFamily:'monospace',marginTop:2}}>{mask(money(r.held.valor_actual))}</div></div>
+                      </div>}
+                      <div style={{fontSize:10,color:C.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.06em'}}>Movimientos registrados</div>
+                      {r.txs.length===0
+                        ?<div style={{fontSize:11,color:C.muted}}>Ninguno cargado en la app para este ticker todavía (la ganancia de arriba sale de la hoja).</div>
+                        :<div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+                          <table style={{width:'100%',borderCollapse:'collapse',minWidth:420}}>
+                            <thead><tr>{['Fecha','Op.','Cant.','Precio','Total','Nota'].map((h,i)=>
+                              <th key={i} style={{padding:'6px 8px',textAlign:i>1?'right':'left',fontSize:9,color:C.muted,fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                            )}</tr></thead>
+                            <tbody>
+                              {r.txs.map(t=>{
+                                const total=t.tipo_op==='Compra'?num(t.cantidad)*num(t.precio)+num(t.comision):num(t.cantidad)*num(t.precio)-num(t.comision);
+                                return <tr key={t.id} style={{borderTop:`1px solid ${C.border}`}}>
+                                  <td style={{padding:'7px 8px',fontSize:11,color:C.sub,whiteSpace:'nowrap'}}>{t.fecha}</td>
+                                  <td style={{padding:'7px 8px',fontSize:11,fontWeight:700,color:t.tipo_op==='Compra'?C.green:C.red}}>{t.tipo_op}</td>
+                                  <td style={{padding:'7px 8px',textAlign:'right',fontFamily:'monospace',fontSize:11}}>{num(t.cantidad).toLocaleString('es-AR',{maximumFractionDigits:4})}</td>
+                                  <td style={{padding:'7px 8px',textAlign:'right',fontFamily:'monospace',fontSize:11}}>{money(t.precio,2)}</td>
+                                  <td style={{padding:'7px 8px',textAlign:'right',fontFamily:'monospace',fontSize:11,fontWeight:700}}>{money(total)}</td>
+                                  <td style={{padding:'7px 8px',fontSize:10,color:C.sub,maxWidth:100,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.nota||'—'}</td>
+                                </tr>;
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      }
+                    </div>}
+                  </div>;
+                })}
+              </div>
+            }
+          </div>;
+        })()}
+      </div>
 
     </div>
   </div>;
