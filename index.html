@@ -49,7 +49,6 @@ const sc = v => v>0?C.green:v<0?C.red:C.sub;
 // ── MEP fetch ──────────────────────────────────────────────────────────────
 async function fetchMEP() {
   try {
-    // Try dolarapi.com (no-cors friendly)
     const res = await fetch('https://dolarapi.com/v1/dolares/bolsa');
     if(res.ok) {
       const d = await res.json();
@@ -57,7 +56,6 @@ async function fetchMEP() {
       if(rate && rate > 0) return { rate: parseFloat(rate), source: 'dolarapi.com', ts: new Date() };
     }
   } catch(e) {}
-  // Fallback: return null so we use manual
   return null;
 }
 
@@ -106,8 +104,11 @@ async function fetchSheet(url, apiKey) {
     moneda: pick(row,'moneda')||'ARS',
     ganancia_realizada: num(pick(row,'ganancia_realizada')),
   })).filter(r=>r.ticker&&r.ticker.trim()!=='');
+  
   const mapped = allRows.filter(r=>r.precio>0&&r.cantidad>0);
-  const sold = allRows.filter(r=>r.cantidad===0&&r.ganancia_realizada>0);
+  // ACÁ ESTABA EL ERROR: se cambió r.ganancia_realizada>0 por !== 0
+  const sold = allRows.filter(r=>r.cantidad===0&&r.ganancia_realizada!==0);
+  
   if(!mapped.length) {
     throw new Error(`Sin activos válidos. Columnas detectadas: ${headers.join(' · ')}. Necesitás al menos: ticker · precio`);
   }
@@ -372,9 +373,6 @@ function App(){
     setLoading(false);
   };
 
-  // Cartera viene SOLO de la hoja de cálculo.
-  // Los movimientos registrados en la app son RECORDATORIOS — no modifican la cartera.
-  // Flujo: registrás en app → lo cargás en la hoja → sincronizás → ves los cambios → borrás el movimiento.
   const enriched = useMemo(()=>{
     return assets.filter(a => a.cantidad > 0).map(a=>{
       const cantidad = a.cantidad;
@@ -394,7 +392,6 @@ function App(){
 
   const totalValor=enriched.reduce((s,a)=>s+a.valor_actual,0);
   const totalCosto=enriched.reduce((s,a)=>s+a.costo_total,0);
-  // Ganancia no realizada excluye Stable Coins (Cripto) — solo mide renta variable real
   const rentaRows=enriched.filter(a=>a.tipo!=='Cripto');
   const totalGanancia=rentaRows.reduce((s,a)=>s+a.ganancia,0);
   const totalGananciaCosto=rentaRows.reduce((s,a)=>s+a.costo_total,0);
